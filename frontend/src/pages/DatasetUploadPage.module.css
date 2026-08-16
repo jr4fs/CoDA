@@ -291,6 +291,10 @@
   text-overflow: ellipsis;
 }
 
+.fileNameSelected {
+  color: hsl(134, 61%, 41%);
+}
+
 .fileNameMissing {
   color: #ff6b6b;
 }

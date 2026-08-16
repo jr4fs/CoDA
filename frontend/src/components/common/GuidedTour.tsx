@@ -177,6 +177,9 @@ export function GuidedTourStep({
     color: isDark ? theme.colors.gray[1] : theme.colors.gray[9],
     boxShadow: isDark ? "0 16px 36px rgba(0, 0, 0, 0.45)" : "0 16px 36px rgba(0, 0, 0, 0.15)",
     border: `1px solid ${isDark ? theme.colors.gray[6] : theme.colors.gray[2]}`,
+    maxWidth: "50vw",
+    whiteSpace: "normal" as const,
+    overflowWrap: "break-word" as const,
   };
 
   return (
