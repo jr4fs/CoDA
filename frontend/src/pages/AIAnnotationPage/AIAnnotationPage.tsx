@@ -5,6 +5,7 @@ import PageIntro from "../../components/common/PageIntro";
 import GuidedTour, { GuidedTourStep } from "../../components/common/GuidedTour";
 import StepTrackerBanner from "../../components/StepTrackerBanner";
 import { useDemo } from "../../demo/DemoContext";
+import { IconArrowRight } from "@tabler/icons-react";
 import styles from "./AIAnnotationPage.module.css";
 
 import { CodebookPanel } from "./components/CodebookPanel";
@@ -149,7 +150,9 @@ export default function AnnotationPage() {
                     ? "—"
                     : Math.round(controller.annotatedMetrics.f1 * 100)}
                 </Badge>
+                
               </Tooltip>
+              <IconArrowRight size={12} color="hsl(0, 0%, 40%)"/>
               <Tooltip
                 label={
                   controller.predictedAccuracy === null

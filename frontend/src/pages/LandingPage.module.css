@@ -210,7 +210,7 @@
 .heroSubtitle {
   font-size: 1.1rem;
   color: rgba(16, 32, 39, 0.8);
-  max-width: 850px;
+  max-width: 600px;
   margin-top: 16px;
   line-height: 1.6;
   animation: fadeUp 700ms ease both;

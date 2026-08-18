@@ -275,7 +275,7 @@ export function FeedbackSection({
 
   return (
     <Paper p="md" bg={surface3} radius="md">
-      {showFeedback && (
+      {showFeedback ? (
         <Stack gap="xs">
           {batchResult?.isCorrect === false && (
             <>
@@ -336,8 +336,13 @@ export function FeedbackSection({
             onChange={(e) => onSetFeedback(e.currentTarget.value)}
             disabled={readOnly}
           />
+          <Text size="xs" c={mutedColor} ta="center">Click <i>Next Sample</i> to continue.</Text>
         </Stack>
-      )}
+      ) : (
+      <Text size="xs" c={mutedColor} ta="center">
+        Mark the AI suggestion as incorrect to provide feedback.
+      </Text>
+    )}
     </Paper>
   );
 }
