@@ -466,7 +466,10 @@ export default function LandingPage() {
               <img src="/annotate-icon.svg" alt="Annotation Assistant" className={styles.logoIcon} />
             </Center>
             <Box className={styles.hero}>
-              <Title className={styles.heroTitle}>Human-in-the-loop Codebook Development</Title>
+              <Title className={styles.heroTitle}>
+                CoDA: A Human-LM Collaborative <b>Co</b>debook <b>D</b>evelopment{" "}
+                <b>A</b>ssistant for Domain-Specific Text Annotation
+              </Title>
               <Text className={styles.heroSubtitle}>
                 To get started, create a task, define your labels, and work with
                 language models to develop a codebook.
@@ -574,6 +577,32 @@ export default function LandingPage() {
                 <Anchor href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</Anchor>.
               </Text>
             </Center>
+
+            <Box className={styles.researchSection}>
+              <Text className={styles.conceptTitle} mb="md">
+                Research
+              </Text>
+              <Stack gap="sm">
+                <Text size="sm" className={styles.citation}>
+                  Jaspreet Ranjit, Swaminathan Chellappa, Augusto Rivas Costante, Chandan
+                  Manjunath, Laura Onasch-Vera, Hailey Winetrobe Nadel, Eric Rice, and Swabha
+                  Swayamdipta. 2026. CoDA: A Human-LM Collaborative Codebook Development
+                  Assistant for Domain-Specific Text Annotation. In{" "}
+                  <i>Proceedings of the 2026 Conference on Empirical Methods in Natural
+                  Language Processing: System Demonstrations (EMNLP 2026)</i>.
+                </Text>
+                <Text size="sm" className={styles.citation}>
+                  Jaspreet Ranjit, Hyundong J. Cho, Claire J. Smerdon, Yoonsoo Nam, Myles
+                  Phung, Jonathan May, John R. Blosnich, and Swabha Swayamdipta. 2026.{" "}
+                  <Anchor href="https://arxiv.org/abs/2508.18541" target="_blank" rel="noopener noreferrer">
+                    Uncovering Intervention Opportunities for Suicide Prevention with
+                    Language Model Assistants
+                  </Anchor>
+                  . In <i>Proceedings of the 64th Annual Meeting of the Association for
+                  Computational Linguistics (ACL 2026)</i>.
+                </Text>
+              </Stack>
+            </Box>
           </Box>
         )}
 

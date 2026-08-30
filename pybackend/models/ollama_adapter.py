@@ -173,7 +173,7 @@ class AnnotationLLMOutput(BaseModel):
 
 
 # Friendly model keys exposed in the UI / stored on TaskDetails.modelName.
-MODEL_KEYS = ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen:32b", "llama3.3:70b"]
+MODEL_KEYS = ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen:72b", "llama3.3:70b"]
 
 # Default mapping from friendly key -> OpenRouter model slug. Slugs occasionally
 # change in the OpenRouter catalogue (https://openrouter.ai/models); override any
@@ -183,7 +183,7 @@ DEFAULT_OPENROUTER_MODEL_MAP = {
     "mistral:7b": "mistralai/ministral-8b-2512",
     "gemma3:1b": "google/gemma-3-4b-it",
     "qwen3.5:2b": "qwen/qwen-2.5-7b-instruct",
-    "qwen:32b": "qwen/qwen-2.5-72b-instruct",
+    "qwen:72b": "qwen/qwen-2.5-72b-instruct",
     "llama3.3:70b": "meta-llama/llama-3.3-70b-instruct",
 }
 
@@ -259,7 +259,7 @@ configs = {
     "qwen3.5:2b": {
         "temperature": 0.4,
     },
-    "qwen:32b": {
+    "qwen:72b": {
         "temperature": 0.4,
     },
     "llama3.3:70b": {

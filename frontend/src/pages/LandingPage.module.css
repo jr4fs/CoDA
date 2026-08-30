@@ -939,6 +939,29 @@
   border-top-color: rgba(231, 241, 238, 0.12);
 }
 
+/* Research / Citations */
+.researchSection {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(16, 32, 39, 0.12);
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+:global([data-mantine-color-scheme="dark"]) .researchSection {
+  border-top-color: rgba(231, 241, 238, 0.12);
+}
+
+.citation {
+  color: rgba(16, 32, 39, 0.8);
+  line-height: 1.6;
+}
+
+:global([data-mantine-color-scheme="dark"]) .citation {
+  color: rgba(231, 241, 238, 0.82);
+}
+
 /* Coming Soon */
 .comingSoonText {
   font-size: 1.2rem;

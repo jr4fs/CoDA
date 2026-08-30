@@ -74,7 +74,7 @@ Ollama-side model tags in
 [`pybackend/models/ollama_adapter.py`](./pybackend/models/ollama_adapter.py)
 before pulling — `gemma3:1b` and `qwen3.5:2b` may not match Ollama's registry
 names. A laptop without a discrete GPU will run the larger models
-(`qwen:32b`, `llama3.3:70b`) slowly.
+(`qwen:72b`, `llama3.3:70b`) slowly.
 
 ### Data privacy: keeping private data fully local
 
