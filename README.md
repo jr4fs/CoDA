@@ -1,12 +1,10 @@
 
-# Human-in-the-loop codebook development 
+# CoDA: A Human-LM Collaborative Codebook Development Assistant for Domain-Specific Text Annotation
 
-Annotation Assistant turns the human effort in large-scale text labeling from
-*annotating every example* into *teaching the model how to label*. You review a
-small, representative sample of your data alongside an LLM's predictions; every
-correction is distilled into an explicit, versioned **codebook** of rules that
-guides the model on the rest of the corpus. The result is a validated, exportable
-labeling policy — not just a labeled file — that can drive annotation at scale.
+We present CoDA, an open-source human-LM collaborative codebook development assistant that helps domain experts develop annotation guidelines for annotating new variables in unstructured text with language models.
+Existing language model annotation systems primarily focus on downstream classification performance, while assuming the availability of high-quality annotation guidelines, or codebooks. 
+In practice, developing these codebooks is time-consuming and challenging, particularly for concepts that require expert knowledge.
+CoDA addresses this gap by collaborating with domain experts to iteratively develop codebooks through targeted review of incorrect language model predictions and incorporating expert feedback into the evolving codebook.
 
 ## Features
 
@@ -146,4 +144,24 @@ common/       Shared TypeScript types
 deploy/       Terraform + Compose overlays + deploy.sh (AWS)
 docs/         Setup & deployment guides
 sample_dataset/  Ready-to-upload demo bundle
+```
+
+## Please cite our work!
+
+```
+@inproceedings{ranjit2026coda,
+  title={CoDA: A Human-LM Collaborative Codebook Development Assistant for Domain-Specific Text Annotation},
+  author={Ranjit, Jaspreet and Chellappa, Swaminathan and Rivas Costante, Augusto and Manjunath, Chandan and Onasch-Vera, Laura and Hailey, Winetrobe Nadel and Rice, Eric and Swayamdipta, Swabha},
+  booktitle={Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing: System Demonstrations},
+  year={2026}
+}
+
+@inproceedings{ranjit2026uncovering,
+  title={Uncovering Intervention Opportunities for Suicide Prevention with Language Model Assistants},
+  author={Ranjit, Jaspreet and Cho, Hyundong Justin and Smerdon, Claire J and Nam, Yoonsoo and Phung, Myles and May, Jonathan and Blosnich, John R and Swayamdipta, Swabha},
+  booktitle={Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
+  pages={15072--15092},
+  year={2026}
+}
+
 ```
