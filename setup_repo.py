@@ -167,6 +167,18 @@ def main():
     os.chdir(PROJECT_ROOT)
     print("Starting repository setup...")
 
+    try:
+        import pymongo  # noqa: F401
+
+        print(f"pymongo already available in {sys.executable}; skipping venv setup.")
+        setup_directories()
+        setup_database()
+        check_env_file()
+        print("\nSetup finished successfully!")
+        return
+    except ImportError:
+        pass
+
     if is_running_in_venv():
         print(f"Running inside virtual environment: {sys.prefix}")
         try:
