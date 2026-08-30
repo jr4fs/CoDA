@@ -146,7 +146,7 @@ docs/         Setup & deployment guides
 sample_dataset/  Ready-to-upload demo bundle
 ```
 
-## Please cite our work!
+## Please cite our work
 
 ```
 @inproceedings{ranjit2026coda,
