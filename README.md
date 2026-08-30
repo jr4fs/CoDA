@@ -6,6 +6,9 @@ Existing language model annotation systems primarily focus on downstream classif
 In practice, developing these codebooks is time-consuming and challenging, particularly for concepts that require expert knowledge.
 CoDA addresses this gap by collaborating with domain experts to iteratively develop codebooks through targeted review of incorrect language model predictions and incorporating expert feedback into the evolving codebook.
 
+Navigate to: https://coda.44.218.57.167.sslip.io/, check out instructions under https://github.com/jr4fs/CoDA/tree/main/sample_dataset for a quick tutorial. 
+Please reach out to jranjit@usc.edu if you would like a provisioned account for your own use case (deployed on AWS). Otherwise, please see instructions below to setup CoDA on your own infrastructure. Be on the lookout for a pip installable package coming soon! 
+
 ## Features
 
 - **Guided sampling.** Representative + coverage sampling over sentence embeddings
