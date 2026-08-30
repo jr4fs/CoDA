@@ -153,7 +153,9 @@ export const uploadBundle = multer({
   storage: multer.memoryStorage(),
   fileFilter: bundleFileFilter,
   limits: {
-    fileSize: 1000 * 2048 * 2048,
+    // Slightly above Caddy's 200MB request_body cap (see deploy/Caddyfile) so
+    // Caddy is the effective limit in production; this is the local-dev ceiling.
+    fileSize: 250 * 1024 * 1024,
   },
 });
 

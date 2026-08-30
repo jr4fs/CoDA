@@ -28,6 +28,11 @@ _auto_label_results: dict[str, list] = {}
 
 VAL_EVAL_CONCURRENCY = 1
 
+# Hard ceiling on rows processed by a single auto-label job — this is the one
+# uncapped path that calls the paid LLM provider once per row of an uploaded
+# file. Override via AUTO_LABEL_MAX_ROWS if you need a bigger ceiling.
+AUTO_LABEL_MAX_ROWS = int(os.getenv("AUTO_LABEL_MAX_ROWS", "5000"))
+
 from models.embedding_schemas import EmbedDatasetRequest, EmbedDatasetResponse
 from models.rule_synthesis_schema import RuleSynthesisRequest, RuleSynthesisResponse
 #from services.embedding_service import EmbeddingService
@@ -351,6 +356,11 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
         csv_path = project_root / "shared_uploads" / request.file_path
 
         df = await asyncio.to_thread(pd.read_csv, csv_path, dtype=str, keep_default_na=False)
+        if len(df) > AUTO_LABEL_MAX_ROWS:
+            raise ValueError(
+                f"Dataset has {len(df)} rows, which exceeds the auto-label limit of "
+                f"{AUTO_LABEL_MAX_ROWS}. Contact an administrator to raise this limit."
+            )
         rows = df.to_dict(orient="records")
         total = len(rows)
         _auto_label_progress[job_id]["total"] = total
