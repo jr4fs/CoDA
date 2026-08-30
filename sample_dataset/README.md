@@ -17,7 +17,7 @@ labels (`positive`, `negative`, `neutral`).
 
 ## How to use
 
-1. Navigate to: https://annotate.44.218.57.167.sslip.io/
+1. Navigate to: [https://annotate.44.218.57.167.sslip.io/](https://coda.44.218.57.167.sslip.io/)
 2. Log in with: Email- tutorial@gmail.com, Password- Demotask@123
 3. Download the toy dataset in this folder
 4. On the "Create Task" page, keep the defaults:
