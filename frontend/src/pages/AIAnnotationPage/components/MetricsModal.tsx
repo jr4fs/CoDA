@@ -157,7 +157,6 @@ export function MetricsModal({
         <Button
           fullWidth
           variant="filled"
-          color="grape"
           loading={finalInferencePhase === "running"}
           disabled={finalInferencePhase === "running" || !taskId}
           onClick={onRunFinalInference}
