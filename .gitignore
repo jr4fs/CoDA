@@ -21,6 +21,15 @@ AGENTS.md
 .idea
 
 bin/mongod
-bin/mongosh 
+bin/mongosh
 data
 lib/
+
+# Deploy job artifacts and runtime junk
+*.log
+*.out
+*.err
+.ipynb_checkpoints/
+ollama_models/
+bin/bin/
+bin/ngrok
