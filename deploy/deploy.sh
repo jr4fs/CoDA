@@ -29,6 +29,7 @@ export AWS_PROFILE AWS_DEFAULT_REGION="$AWS_REGION"
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.medium}"
 PUBLIC_KEY_PATH="${PUBLIC_KEY_PATH:-~/.ssh/id_ed25519.pub}"
 ENABLE_BEDROCK="${ENABLE_BEDROCK:-false}"
+AMI_ID="${AMI_ID:-}"
 GIT_REPO="${GIT_REPO:-git@github.com:jr4fs/annotation_tool.git}"
 GIT_BRANCH="${GIT_BRANCH:-deploy-single-vm}"
 
@@ -64,6 +65,7 @@ ssh_cidr        = $SSH_CIDR_TF
 public_key_path = "$PUBLIC_KEY_PATH"
 instance_type   = "$INSTANCE_TYPE"
 enable_bedrock  = $ENABLE_BEDROCK
+ami_id          = "$AMI_ID"
 EOF
 
 echo "==> terraform apply"
