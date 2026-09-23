@@ -32,11 +32,22 @@ ENABLE_BEDROCK="${ENABLE_BEDROCK:-false}"
 GIT_REPO="${GIT_REPO:-git@github.com:jr4fs/annotation_tool.git}"
 GIT_BRANCH="${GIT_BRANCH:-deploy-single-vm}"
 
-# ---- SSH CIDR auto-detect ----
-if [ "${SSH_CIDR:-auto}" = "auto" ]; then
-  SSH_CIDR="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')/32"
-  echo "==> SSH_CIDR auto-detected: $SSH_CIDR"
-fi
+# ---- SSH CIDR: comma-separated list, one entry per deployer. 'auto' in any
+#      entry resolves to that machine's current public IP. Each person keeps
+#      their own IP as 'auto' and hardcodes their co-deployers' IPs, so nobody's
+#      deploy locks anybody else out.
+IFS=',' read -ra _SSH_CIDR_RAW <<< "${SSH_CIDR:-auto}"
+SSH_CIDR_LIST=()
+for c in "${_SSH_CIDR_RAW[@]}"; do
+  c="$(echo "$c" | xargs)"
+  if [ "$c" = "auto" ]; then
+    c="$(curl -fsS https://checkip.amazonaws.com | tr -d '\n')/32"
+    echo "==> SSH_CIDR 'auto' resolved to: $c"
+  fi
+  SSH_CIDR_LIST+=("$c")
+done
+SSH_CIDR_TF="$(printf '"%s", ' "${SSH_CIDR_LIST[@]}")"
+SSH_CIDR_TF="[${SSH_CIDR_TF%, }]"
 
 # ---- persistent JWT secrets (generated once, reused across redeploys) ----
 if [ ! -f "$GENERATED" ]; then
@@ -49,7 +60,7 @@ fi
 # ---- Terraform: render tfvars + apply ----
 cat > "$TF_DIR/terraform.tfvars" <<EOF
 region          = "$AWS_REGION"
-ssh_cidr        = "$SSH_CIDR"
+ssh_cidr        = $SSH_CIDR_TF
 public_key_path = "$PUBLIC_KEY_PATH"
 instance_type   = "$INSTANCE_TYPE"
 enable_bedrock  = $ENABLE_BEDROCK

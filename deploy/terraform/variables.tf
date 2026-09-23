@@ -23,9 +23,9 @@ variable "root_volume_gb" {
 }
 
 variable "ssh_cidr" {
-  description = "CIDR allowed to SSH (port 22). Set to <your-public-ip>/32. Defaults open — restrict it."
-  type        = string
-  default     = "0.0.0.0/0"
+  description = "CIDRs allowed to SSH (port 22), one per deployer. Set to [\"<your-public-ip>/32\"]. Defaults open — restrict it."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 variable "public_key_path" {
