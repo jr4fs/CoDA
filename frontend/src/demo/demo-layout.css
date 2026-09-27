@@ -17,6 +17,7 @@
 
 .demo-content-wrapper {
   flex: 1;
+  min-height: 0;
   width: 100%;
   overflow: hidden;
   position: relative;
@@ -32,6 +33,16 @@
   bottom: 0 !important;
   width: 100% !important;
   height: 100% !important;
+}
+
+.demo-content-wrapper .mantine-AppShell-main {
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+
+.demo-content-wrapper .dashboard-shell {
+  height: 100%;
 }
 
 /* Ensure navbar doesn't use fixed positioning */
