@@ -21,6 +21,15 @@ export const demoTask: Task = {
     "negative: posts that promote selling, eating, or using pangolin parts, or blame them for disease",
     "neutral: posts that mention pangolins with no stance — memes, games, logos, plush toys",
   ],
+  evalResults: {
+    predictionsFilename: "val_eval_predictions_demo.csv",
+    macroF1: 0.89,
+    macroPrecision: 0.87,
+    macroRecall: 0.91,
+    accuracy: 0.9,
+    numSamples: 30,
+    completedAt: "2026-09-23T18:42:00.000Z",
+  },
   userID: "demo-user",
   createdAt: new Date().toISOString(),
 };
@@ -37,6 +46,8 @@ const samples = [
 const labels = ["positive", "positive", "negative", "negative", "neutral", "neutral"];
 
 export const demoAnnotations: AnnotationItem[] = samples.map((text, idx) => {
+  const prediction = ["positive", "neutral", "negative", "neutral", "neutral", "positive"][idx];
+  const isCorrect = prediction === labels[idx];
   return {
     _id: `a${String(idx + 1)}`,
     taskId: "demo-task-1",
@@ -45,7 +56,18 @@ export const demoAnnotations: AnnotationItem[] = samples.map((text, idx) => {
     labels: [labels[idx]],
     createdBy: "demo-user",
     source: "guide",
-    aiAnnotation: null,
+    aiAnnotation: {
+      batchID: idx < 3 ? "demo-batch-1" : "demo-batch-2",
+      batchNum: idx < 3 ? 1 : 2,
+      label: [prediction],
+      reason: "Demo model reasoning",
+      span_text: text,
+      isCorrect,
+      feedback: isCorrect ? "" : "Corrected during review",
+      spanFeedback: true,
+      reasoningFeedback: true,
+      correctLabel: isCorrect ? null : labels[idx],
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } as AnnotationItem;
