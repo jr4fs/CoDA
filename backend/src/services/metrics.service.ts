@@ -1,16 +1,20 @@
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import axios from "axios";
 import { Response } from "express";
 import { AnnotationItem } from "@common/types/annotations";
-import { Task } from "@common/types/tasks";
+import {
+  EvaluationSnapshot,
+  EvaluationStage,
+  Task,
+} from "@common/types/tasks";
 import { getCollection } from "./database.service";
 import { ObjectId } from "mongodb";
 import { AuthRequest } from "./tasks.service";
 import { ensureMetricsDir, METRICS_DIR } from "../utils/metrics";
 import Papa from "papaparse";
 import fsAsync from "fs/promises";
-import axios from "axios";
 
 const ANNOTATION_COLLECTION =
   process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails";
@@ -628,13 +632,24 @@ const VAL_EVAL_PREDICTIONS_HEADERS = [
 
 export async function runValEvaluation(req: AuthRequest, res: Response) {
   const userId = req.user?.userId;
-  const { taskId, codebook: bodyCodebook } = req.body as { taskId?: string; codebook?: string[] };
+  const {
+    taskId,
+    codebook: bodyCodebook,
+    stage = "checkpoint",
+  } = req.body as {
+    taskId?: string;
+    codebook?: string[];
+    stage?: EvaluationStage;
+  };
 
   if (!userId) {
     return res.status(401).json({ success: false, message: "Unauthorized - user not authenticated" });
   }
   if (!taskId) {
     return res.status(400).json({ success: false, message: "taskId is required" });
+  }
+  if (!["baseline", "checkpoint", "final"].includes(stage)) {
+    return res.status(400).json({ success: false, message: "Invalid evaluation stage" });
   }
 
   try {
@@ -656,6 +671,52 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const valPath = path.join(projectRoot, "val_datasets", task.valFile);
     const valText = await fsAsync.readFile(valPath, "utf-8");
     const valRows = parseCsvText(valText);
+    const evaluationKey = createHash("sha256")
+      .update(
+        JSON.stringify({
+          valData: valText,
+          modelName: task.modelName,
+          labels: task.labels,
+          description: task.description,
+          type: task.type,
+        }),
+      )
+      .digest("hex");
+    const evaluationCodebook = Array.isArray(bodyCodebook)
+      ? [...bodyCodebook]
+      : [...(task.codebook ?? [])];
+
+    if (stage === "baseline") {
+      const existingBaseline = task.evaluationHistory?.find(
+        (snapshot) =>
+          snapshot.stage === "baseline" &&
+          snapshot.evaluationKey === evaluationKey,
+      );
+      if (existingBaseline) {
+        return res.status(200).json({
+          success: true,
+          evalResults: existingBaseline.results,
+          evaluationSnapshot: existingBaseline,
+          alreadyExists: true,
+        });
+      }
+
+      const reviewedGuideSample = await getCollection<AnnotationItem>(
+        ANNOTATION_COLLECTION,
+      ).findOne({
+        taskId,
+        createdBy: userId,
+        source: "guide",
+        "aiAnnotation.isCorrect": { $in: [true, false] },
+      });
+      if (reviewedGuideSample) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "A true baseline cannot be created after guide review has started.",
+        });
+      }
+    }
 
     const labelColumn = task.labelColumn || "Final Label";
     const preferredTextCol = task.columns?.[0];
@@ -678,7 +739,7 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
         labels: task.labels,
         task_definition: task.description,
         model_name: task.modelName,
-        user_input: (Array.isArray(bodyCodebook) ? bodyCodebook : task.codebook)?.join("\n") || null,
+        user_input: evaluationCodebook.join("\n") || null,
         task_type: task.type || "annotation",
         task_id: taskId,
       },
@@ -713,11 +774,34 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const fp: Record<string, number> = {};
     const tn: Record<string, number> = {};
     const fn: Record<string, number> = {};
+    const perLabel: Record<
+      string,
+      {
+        precision: number;
+        recall: number;
+        f1: number;
+        tp: number;
+        fp: number;
+        tn: number;
+        fn: number;
+        support: number;
+      }
+    > = {};
     for (const label of labelNames) {
       tp[label] = metrics.perLabel[label]?.tp ?? 0;
       fp[label] = metrics.perLabel[label]?.fp ?? 0;
       tn[label] = metrics.perLabel[label]?.tn ?? 0;
       fn[label] = metrics.perLabel[label]?.fn ?? 0;
+      perLabel[label] = {
+        precision: metrics.precision[label] ?? 0,
+        recall: metrics.recall[label] ?? 0,
+        f1: metrics.f1[label] ?? 0,
+        tp: tp[label],
+        fp: fp[label],
+        tn: tn[label],
+        fn: fn[label],
+        support: tp[label] + fn[label],
+      };
     }
 
     ensureMetricsDir();
@@ -728,7 +812,7 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const row = {
       task_id: taskId,
       model_name: task.modelName ?? "",
-      codebook_snapshot: toJson(task.codebook ?? []),
+      codebook_snapshot: toJson(evaluationCodebook),
       val_file: task.valFile,
       num_samples: samples.length,
       accuracy,
@@ -776,14 +860,47 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       macroF1: metrics.macroF1,
       macroPrecision,
       macroRecall,
+      microF1: metrics.microF1,
+      wrongPredictions: samples.length - exactMatches,
+      perLabel,
       accuracy,
       numSamples: samples.length,
       completedAt: new Date().toISOString(),
+      evaluationKey,
     };
-    await taskCollection.updateOne(
-      { _id: taskQueryId as any, userID: userId },
-      { $set: { evalResults } },
-    );
+    const evaluationSnapshot: EvaluationSnapshot = {
+      stage,
+      codebook: evaluationCodebook,
+      codebookHash: createHash("sha256")
+        .update(JSON.stringify(evaluationCodebook))
+        .digest("hex"),
+      evaluationKey,
+      modelName: task.modelName ?? "",
+      valFile: task.valFile,
+      results: evalResults,
+    };
+    if (stage === "baseline") {
+      await taskCollection.updateOne(
+        {
+          _id: taskQueryId as any,
+          userID: userId,
+          evaluationHistory: {
+            $not: {
+              $elemMatch: { stage: "baseline", evaluationKey },
+            },
+          },
+        },
+        { $push: { evaluationHistory: evaluationSnapshot } },
+      );
+    } else {
+      await taskCollection.updateOne(
+        { _id: taskQueryId as any, userID: userId },
+        {
+          $set: { evalResults },
+          $push: { evaluationHistory: evaluationSnapshot },
+        },
+      );
+    }
 
     return res.status(200).json({
       success: true,
@@ -792,14 +909,64 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       macroF1: metrics.macroF1,
       macroPrecision,
       macroRecall,
+      microF1: metrics.microF1,
+      wrongPredictions: samples.length - exactMatches,
+      perLabel,
       accuracy,
       evalResults,
+      evaluationSnapshot,
     });
   } catch (error: any) {
     console.error("Error running val evaluation:", error);
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to run val evaluation",
+    });
+  }
+}
+
+export async function getModelPerformance(req: AuthRequest, res: Response) {
+  const userId = req.user?.userId;
+  const { taskId } = req.params;
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  if (!taskId) {
+    return res.status(400).json({ success: false, message: "taskId is required" });
+  }
+
+  try {
+    const taskCollection = getCollection<Task>(
+      process.env.TASKS_COLLECTION_NAME || "TaskDetails",
+    );
+    const taskQueryId: ObjectId | string = ObjectId.isValid(taskId)
+      ? new ObjectId(taskId)
+      : taskId;
+    const task = await taskCollection.findOne({
+      _id: taskQueryId as any,
+      userID: userId,
+    });
+
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+
+    const snapshots = task.evaluationHistory ?? [];
+    return res.status(200).json({
+      success: true,
+      snapshots,
+      baseline: [...snapshots]
+        .reverse()
+        .find((snapshot) => snapshot.stage === "baseline"),
+      final: [...snapshots]
+        .reverse()
+        .find((snapshot) => snapshot.stage === "final"),
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to load model performance",
     });
   }
 }

@@ -1,4 +1,9 @@
-import { EvalResults } from "@common/types/tasks";
+import type {
+  EvalLabelResults,
+  EvalResults,
+  EvaluationSnapshot,
+  EvaluationStage,
+} from "@common/types/tasks";
 import { apiClient } from "../lib/apiClient";
 
 export interface GenerateSampleMetricsResponse {
@@ -56,16 +61,42 @@ export interface RunValEvalResponse {
   macroF1?: number;
   macroPrecision?: number;
   macroRecall?: number;
+  microF1?: number;
+  wrongPredictions?: number;
+  perLabel?: Record<string, EvalLabelResults>;
   accuracy?: number;
   evalResults?: EvalResults;
+  evaluationSnapshot?: EvaluationSnapshot;
+  alreadyExists?: boolean;
   message?: string;
 }
 
-export async function runValEvaluation(taskId: string, codebook?: string[]): Promise<RunValEvalResponse> {
+export async function runValEvaluation(
+  taskId: string,
+  codebook?: string[],
+  stage: EvaluationStage = "checkpoint",
+): Promise<RunValEvalResponse> {
   const { data } = await apiClient.post<RunValEvalResponse>(
     "/api/metrics/val-eval",
-    { taskId, codebook },
+    { taskId, codebook, stage },
     { timeout: 3_600_000 },
+  );
+  return data;
+}
+
+export interface ModelPerformanceResponse {
+  success: boolean;
+  snapshots: EvaluationSnapshot[];
+  baseline?: EvaluationSnapshot;
+  final?: EvaluationSnapshot;
+  message?: string;
+}
+
+export async function getModelPerformance(
+  taskId: string,
+): Promise<ModelPerformanceResponse> {
+  const { data } = await apiClient.get<ModelPerformanceResponse>(
+    `/api/metrics/model-performance/${taskId}`,
   );
   return data;
 }

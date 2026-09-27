@@ -5,14 +5,41 @@ export interface LabelItem {
   guidelines?: string;
 }
 
+export interface EvalLabelResults {
+  precision: number;
+  recall: number;
+  f1: number;
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+  support: number;
+}
+
 export interface EvalResults {
   predictionsFilename: string;
   macroF1: number;
   macroPrecision?: number;
   macroRecall?: number;
+  microF1?: number;
+  wrongPredictions?: number;
+  perLabel?: Record<string, EvalLabelResults>;
   accuracy: number;
   numSamples: number;
   completedAt: string;
+  evaluationKey?: string;
+}
+
+export type EvaluationStage = "baseline" | "checkpoint" | "final";
+
+export interface EvaluationSnapshot {
+  stage: EvaluationStage;
+  codebook: string[];
+  codebookHash: string;
+  evaluationKey: string;
+  modelName: string;
+  valFile: string;
+  results: EvalResults;
 }
 
 export interface Task {
@@ -40,6 +67,7 @@ export interface Task {
   restFile?: string;
   valFile?: string;
   evalResults?: EvalResults;
+  evaluationHistory?: EvaluationSnapshot[];
   // Codebook-development review finished (via last batch commit or Exit). Once
   // true the codebook + sample review are locked read-only.
   codebookComplete?: boolean;
