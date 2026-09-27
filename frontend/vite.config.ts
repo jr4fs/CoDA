@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
 //
@@ -10,13 +11,14 @@ import { fileURLToPath } from 'node:url';
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   // Read env from the single repo-root .env (only VITE_* vars are exposed to the
   // client). In Docker the build passes VITE_* as build args, so no root .env is
   // needed there.
   envDir: path.resolve(dirname, '..'),
   resolve: {
     alias: {
+      '@': path.resolve(dirname, 'src'),
       '@common': path.resolve(dirname, '../common/src'),
     },
   },

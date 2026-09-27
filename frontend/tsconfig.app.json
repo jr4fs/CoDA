@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "paths": {
+      "@/*": ["./src/*"],
       "@common/*": ["../common/src/*"]
     },
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
