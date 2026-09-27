@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "build:demo": "vite build -c vite.demo.config.ts && cp dist-demo/demo-standalone.html dist-demo/index.html",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mantine/core": "^8.3.10",
@@ -16,20 +17,24 @@
     "@mantine/form": "^8.3.10",
     "@mantine/hooks": "^8.3.10",
     "@mantine/notifications": "^8.3.12",
+    "@radix-ui/react-tabs": "^1.1.21",
     "@reduxjs/toolkit": "^2.11.2",
     "@tabler/icons-react": "^3.36.0",
     "axios": "^1.13.2",
+    "clsx": "^2.1.1",
     "papaparse": "^5.5.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-redux": "^9.2.0",
     "react-router": "^7.11.0",
     "react-router-dom": "^7.11.0",
+    "tailwind-merge": "^3.7.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.10.1",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.5",
@@ -43,6 +48,7 @@
     "globals": "^16.5.0",
     "msw": "^2.14.5",
     "playwright": "^1.59.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
