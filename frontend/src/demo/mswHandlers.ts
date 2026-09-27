@@ -198,16 +198,29 @@ export const handlersReady = [
   http.post(`${API}/api/metrics/val-eval`, () => {
     return HttpResponse.json({
       success: true,
-      macroF1: 0.9,
-      macroPrecision: 0.91,
-      macroRecall: 0.89,
-      accuracy: 0.9,
       filename: "val_eval_demo.csv",
-      predictionsFilename: "val_eval_predictions_demo.csv",
+      predictionsFilename: demoTask.evalResults?.predictionsFilename,
+      macroF1: demoTask.evalResults?.macroF1,
+      macroPrecision: demoTask.evalResults?.macroPrecision,
+      macroRecall: demoTask.evalResults?.macroRecall,
+      microF1: demoTask.evalResults?.microF1,
+      wrongPredictions: demoTask.evalResults?.wrongPredictions,
+      perLabel: demoTask.evalResults?.perLabel,
+      accuracy: demoTask.evalResults?.accuracy,
+      evalResults: demoTask.evalResults,
     });
   }),
   http.get(`${API}/api/metrics/val-eval/progress/:taskId`, () => {
     return HttpResponse.json({ completed: 15, total: 15, done: true });
+  }),
+  http.get(`${API}/api/metrics/model-performance/:taskId`, () => {
+    const snapshots = demoTask.evaluationHistory ?? [];
+    return HttpResponse.json({
+      success: true,
+      snapshots,
+      baseline: snapshots.find((snapshot) => snapshot.stage === "baseline"),
+      final: snapshots.find((snapshot) => snapshot.stage === "final"),
+    });
   }),
   http.post(`${API}/api/metrics/val-eval/cancel`, () => {
     return HttpResponse.json({ success: true });

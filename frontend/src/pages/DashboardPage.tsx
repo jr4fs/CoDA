@@ -6,13 +6,28 @@ import type { Task } from "@common/types/tasks";
 
 import SessionDetails from "@/components/dashboard/SessionDetails";
 import TaskSummaryCard from "@/components/dashboard/TaskSummaryCard";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ModelPerformance from "@/components/dashboard/ModelPerformance";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { getTaskAnnotations } from "@/services/annotations.service";
-import { getValEvalProgress, runValEvaluation } from "@/services/metrics.service";
+import {
+  getValEvalProgress,
+  runValEvaluation,
+} from "@/services/metrics.service";
 import { getTaskById } from "@/services/tasks.service";
-import { isDashboardTabId, type DashboardTabId } from "@/types/dashboard";
-import { getSessionSummary, type SessionSummary } from "@/utils/dashboard/sessionMetrics";
+import {
+  isDashboardTabId,
+  type DashboardTabId,
+} from "@/types/dashboard";
+import {
+  getSessionSummary,
+  type SessionSummary,
+} from "@/utils/dashboard/sessionMetrics";
 
 const DEFAULT_TAB: DashboardTabId = "session-details";
 
@@ -22,14 +37,18 @@ export default function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [task, setTask] = useState<Task | null>(null);
-  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(
+    null,
+  );
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
 
   const requestedTab = searchParams.get("tab");
-  const activeTab = isDashboardTabId(requestedTab) ? requestedTab : DEFAULT_TAB;
+  const activeTab = isDashboardTabId(requestedTab)
+    ? requestedTab
+    : DEFAULT_TAB;
 
   useEffect(() => {
     if (!taskId) {
@@ -45,8 +64,8 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         const loadedTask: Task = taskData.task ?? taskData;
-        const loadedAnnotations = annotationData.annotations ?? [];
         setTask(loadedTask);
+        const loadedAnnotations = annotationData.annotations ?? [];
         setAnnotations(loadedAnnotations);
         setSessionSummary(getSessionSummary(loadedAnnotations));
       })
@@ -73,9 +92,14 @@ export default function DashboardPage() {
         const nextProgress = await getValEvalProgress(taskId);
         if (cancelled) return false;
 
-        setProgress({ completed: nextProgress.completed, total: nextProgress.total });
+        setProgress({
+          completed: nextProgress.completed,
+          total: nextProgress.total,
+        });
 
-        const stillRunning = nextProgress.total > 0 && !nextProgress.done &&
+        const stillRunning =
+          nextProgress.total > 0 &&
+          !nextProgress.done &&
           nextProgress.completed < nextProgress.total;
         setIsRunning(stillRunning);
 
@@ -115,7 +139,10 @@ export default function DashboardPage() {
     const pollInterval = setInterval(async () => {
       try {
         const nextProgress = await getValEvalProgress(taskId);
-        setProgress({ completed: nextProgress.completed, total: nextProgress.total });
+        setProgress({
+          completed: nextProgress.completed,
+          total: nextProgress.total,
+        });
         if (nextProgress.done) clearInterval(pollInterval);
       } catch {
         // A later poll can recover from a transient request failure.
@@ -123,11 +150,24 @@ export default function DashboardPage() {
     }, 1500);
 
     try {
-      const result = await runValEvaluation(taskId);
+      const result = await runValEvaluation(taskId, task?.codebook, "final");
       clearInterval(pollInterval);
 
       if (result.success && result.evalResults) {
-        setTask((currentTask) => currentTask ? { ...currentTask, evalResults: result.evalResults } : currentTask);
+        setTask((currentTask) =>
+          currentTask
+            ? {
+                ...currentTask,
+                evalResults: result.evalResults,
+                evaluationHistory: result.evaluationSnapshot
+                  ? [
+                      ...(currentTask.evaluationHistory ?? []),
+                      result.evaluationSnapshot,
+                    ]
+                  : currentTask.evaluationHistory,
+              }
+            : currentTask,
+        );
         toast.success("Evaluation complete");
       } else {
         toast.error(result.message || "Evaluation failed");
@@ -166,7 +206,7 @@ export default function DashboardPage() {
           </p>
           <button
             type="button"
-            className="mt-6 inline-flex h-9 items-center justify-center rounded-md !border-0 bg-primary !px-4 !py-0 !text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:!outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="mt-6 inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             onClick={() => navigate("/home")}
           >
             Return home
@@ -176,7 +216,8 @@ export default function DashboardPage() {
     );
   }
 
-  const progressPercent = progress.total ? (progress.completed / progress.total) * 100 : 0;
+  const progressPercent =
+    progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
 
   return (
     <main className="dashboard-shell px-4 py-6 sm:px-6 lg:px-8">
@@ -189,7 +230,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="!border-0 !p-0 !text-[12px] font-normal !leading-normal text-primary hover:underline focus-visible:!outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="border-0 p-0 !text-[12px] font-normal !leading-normal text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             ← Back
           </button>
@@ -235,7 +276,11 @@ export default function DashboardPage() {
           </section>
         )}
 
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-3">
+        <Tabs
+          value={activeTab}
+          onValueChange={handleTabChange}
+          className="gap-3"
+        >
           <TabsList className="h-auto w-fit justify-start gap-3 rounded-none bg-transparent p-0">
             <DashboardTabTrigger value="session-details">
               Session Details
@@ -257,7 +302,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="model-performance">
-            <DashboardPlaceholder>Model performance coming next.</DashboardPlaceholder>
+            <ModelPerformance task={task} annotations={annotations} />
           </TabsContent>
 
           <TabsContent value="data-analysis">
@@ -269,11 +314,17 @@ export default function DashboardPage() {
   );
 }
 
-function DashboardTabTrigger({ value, children }: { value: DashboardTabId; children: string }) {
+function DashboardTabTrigger({
+  value,
+  children,
+}: {
+  value: DashboardTabId;
+  children: string;
+}) {
   return (
     <TabsTrigger
       value={value}
-      className="relative h-auto flex-none rounded-none !border-0 bg-transparent !px-0 !py-2 !text-[12px] font-normal text-[#404040] shadow-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none data-[state=active]:after:bg-primary"
+      className="relative h-auto flex-none rounded-none border-0 bg-transparent px-0 py-2 !text-[12px] font-normal text-[#404040] shadow-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-transparent after:content-[''] hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:shadow-none data-[state=active]:after:bg-primary"
     >
       {children}
     </TabsTrigger>
