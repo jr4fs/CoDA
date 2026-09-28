@@ -3,6 +3,7 @@ import {
   createTask,
   getUserTasks,
   getTaskByID,
+  getDataAnalysisData,
   uploadTaskFile,
   getCsvData,
   checkValFileExists,
@@ -78,6 +79,9 @@ router.get("/getTasks", getUserTasks);
 
 // Get a single task's details
 router.get("/getTask/:taskId", getTaskByID);
+
+// Load the persisted labeled dataset used by the Data Analysis tab.
+router.get("/data-analysis/:taskId", getDataAnalysisData);
 
 // Delete a task and associated artifacts
 router.delete("/delete/:taskId", deleteTask);

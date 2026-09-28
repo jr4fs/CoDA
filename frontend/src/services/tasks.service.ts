@@ -29,6 +29,22 @@ export async function getUserTasks(): Promise<TaskQueryResponse> {
   return data;
 }
 
+export interface DataAnalysisDataResponse {
+  success: boolean;
+  status: "ready" | "pending";
+  rows: Array<Record<string, string>>;
+  headers: string[];
+}
+
+export async function getDataAnalysisData(
+  taskId: string,
+): Promise<DataAnalysisDataResponse> {
+  const { data } = await apiClient.get<DataAnalysisDataResponse>(
+    `/api/tasks/data-analysis/${encodeURIComponent(taskId)}`,
+  );
+  return data;
+}
+
 export async function saveTaskCodebook(taskId: string, codebook: string[]) {
   const { data } = await apiClient.post<{ success: boolean; message?: string }>(
     "/api/tasks/saveCodebook",
@@ -189,9 +205,10 @@ export async function downloadAnnotationOutputFile(filename: string): Promise<Bl
   return response.data as Blob;
 }
 
-export async function uploadOutputFile(file: File): Promise<UploadFileResponse> {
+export async function uploadOutputFile(file: File, taskId: string): Promise<UploadFileResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("taskId", taskId);
   const { data } = await apiClient.post<UploadFileResponse>(
     "/api/tasks/upload-output",
     formData,

@@ -415,7 +415,7 @@ export const useAIAnnotationController = () => {
       const file = new File([rowsToCsv(rows)], `labeled_d_all_${taskId}.csv`, {
         type: "text/csv",
       });
-      const upload = await uploadOutputFile(file);
+      const upload = await uploadOutputFile(file, taskId);
       if (upload.success && upload.filePath) {
         await saveFinalInferenceResult(taskId, upload.filePath);
         setFinalInferenceFile(upload.filePath);

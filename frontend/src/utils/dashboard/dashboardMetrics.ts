@@ -38,12 +38,13 @@ interface TimeAggregationOptions {
 
 export function getDatasetOverview(records: NormalizedRecord[]): DatasetOverview {
   const totalEntries = records.length;
-  const ids = records.map((record) => record.id);
+  const ids = records.map((record) => record.id).filter((id) => id.trim() !== "");
   const uniqueIds = new Set(ids).size;
 
   const entriesPerId: Record<string, number> = {};
 
   for (const record of records) {
+    if (record.id.trim() === "") continue;
     entriesPerId[record.id] = (entriesPerId[record.id] ?? 0) + 1;
   }
 

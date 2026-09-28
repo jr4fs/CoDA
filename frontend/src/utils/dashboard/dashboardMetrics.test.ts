@@ -7,7 +7,7 @@ import {
   getLabelDistribution,
   getLabelDistributionOverTime,
 } from "./dashboardMetrics";
-import { normalizeDataset } from "./normalizeDataset";
+import { detectDatasetColumns, normalizeDataset } from "./normalizeDataset";
 
 const record = (
   id: string,
@@ -44,6 +44,43 @@ describe("normalizeDataset", () => {
     expect(normalized).toMatchObject({ id: "0", text: "Example" });
     expect(normalized.timestamp).toBeUndefined();
   });
+
+  it("detects the attached Youth ID and Date columns", () => {
+    const columns = detectDatasetColumns([
+      { "Youth ID": "Y-1", Date: "1/2/2026", Notes_anonymized: " Text ", generated_label: "neither" },
+    ]);
+    expect(columns).toEqual({
+      textColumn: "Notes_anonymized",
+      labelColumn: "generated_label",
+      idColumn: "Youth ID",
+      timestampColumn: "Date",
+    });
+  });
+
+  it("trims mapped values, preserves raw data, and keeps missing configured IDs blank", () => {
+    const row = { id: "  ", body: " Example ", label: " health referral ", date: "1/2/2026" };
+    const [normalized] = normalizeDataset([row], {
+      idColumn: "id", textColumn: "body", labelColumn: "label", timestampColumn: "date",
+    });
+    expect(normalized).toMatchObject({ id: "", text: "Example", label: "health referral", raw: row });
+    expect(normalized.timestamp?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
+  });
+
+  it("does not infer arbitrary numeric dates or invalid calendar dates", () => {
+    const normalized = normalizeDataset([
+      { body: "a", date: "45292" },
+      { body: "b", date: "2/30/2026" },
+      { body: "c", date: "2026-02-30" },
+    ], { textColumn: "body", timestampColumn: "date" });
+    expect(normalized.map((row) => row.timestamp)).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("requires at least 80 percent valid dates before choosing a timestamp column", () => {
+    expect(detectDatasetColumns([
+      { id: "a", date: "2026-01-02", note: "A" },
+      { id: "b", date: "not a date", note: "B" },
+    ])?.timestampColumn).toBeUndefined();
+  });
 });
 
 describe("dashboard metrics", () => {
@@ -59,6 +96,15 @@ describe("dashboard metrics", () => {
       uniqueIds: 0,
       averageEntriesPerId: 0,
       medianEntriesPerId: 0,
+    });
+  });
+
+  it("counts total rows but excludes blank IDs from ID overview statistics", () => {
+    expect(getDatasetOverview([record("a"), record(""), record(" "), record("a")])).toEqual({
+      totalEntries: 4,
+      uniqueIds: 1,
+      averageEntriesPerId: 2,
+      medianEntriesPerId: 2,
     });
   });
 
@@ -91,6 +137,23 @@ describe("dashboard metrics", () => {
     expect(monthly.map(({ period }) => period)).toEqual(["2026-01", "2026-02"]);
     expect(quarterly.map(({ period }) => period)).toEqual(["2026-Q1", "2026-Q4"]);
     expect(yearly.map(({ period }) => period)).toEqual(["2020", "2025"]);
+  });
+
+  it("calculates time-bucket counts and proportions from dated, labeled rows", () => {
+    const [january] = getLabelDistributionOverTime([
+      record("1", "health referral", "2026-01-01"),
+      record("2", "health referral", "2026-01-12"),
+      record("3", "neither", "2026-01-20"),
+      record("4", "health discussion"),
+      record("5", undefined, "2026-01-25"),
+    ]);
+
+    expect(january).toEqual({
+      period: "2026-01",
+      total: 3,
+      counts: { "health referral": 2, neither: 1 },
+      proportions: { "health referral": 2 / 3, neither: 1 / 3 },
+    });
   });
 
   it("summarizes each id and sorts by its latest activity", () => {

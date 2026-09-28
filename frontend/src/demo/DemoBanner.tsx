@@ -19,7 +19,7 @@ export const DemoBanner = () => {
       <Flex align="center" gap="xs">
         <IconBulb size={16} color="#FFC107" stroke={2} />
         <Text size="sm" fw={500} c="rgba(255, 193, 7, 0.9)">
-          Demo Mode · Wildlife Trafficking Classification
+          Demo Mode · Youth Support Notes
         </Text>
       </Flex>
       <Button

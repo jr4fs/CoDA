@@ -7,6 +7,7 @@ import type { Task } from "@common/types/tasks";
 import SessionDetails from "@/components/dashboard/SessionDetails";
 import TaskSummaryCard from "@/components/dashboard/TaskSummaryCard";
 import ModelPerformance from "@/components/dashboard/ModelPerformance";
+import DataAnalysis from "@/components/dashboard/DataAnalysis";
 import {
   Tabs,
   TabsContent,
@@ -306,7 +307,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="data-analysis">
-            <DashboardPlaceholder>Data analysis coming next.</DashboardPlaceholder>
+            <DataAnalysis task={task} />
           </TabsContent>
         </Tabs>
       </div>
@@ -329,8 +330,4 @@ function DashboardTabTrigger({
       {children}
     </TabsTrigger>
   );
-}
-
-function DashboardPlaceholder({ children }: { children: string }) {
-  return <p className="py-3 text-xs text-muted-foreground">{children}</p>;
 }

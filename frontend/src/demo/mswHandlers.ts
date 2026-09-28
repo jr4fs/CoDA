@@ -1,72 +1,35 @@
 import { http, HttpResponse } from "msw";
-import { demoAnnotations, demoTask } from "./demoData";
+import { demoAnalysisRows, demoAnnotations, demoTask } from "./demoData";
 
 // Wildcard origin so the demo's mocked endpoints match regardless of where it is
 // served from: localhost in dev, GitHub Pages, or the deployed same-origin build
 // (where apiClient uses a relative baseURL). MSW resolves "*" against any origin.
 const API = "*";
 
-// Per-sample mock AI prediction for the demo, keyed off the post text. The first
-// four are correct; the last two (the no-stance plushie/game posts) are wrong on
-// purpose so the demo shows the "mark incorrect → pick the right label" flow.
+// Mock predictions for the demo's health-support notes. Keyword branches make
+// the six sample notes representative while keeping unseen notes predictable.
 type DemoPrediction = { label: string[]; span_text: string; reason: string };
 
 function demoPrediction(text: string): DemoPrediction {
   const t = text.toLowerCase();
-  if (t.includes("rescue center")) {
+  if (/(refer|referral|clinic|provider|intake appointment)/.test(t)) {
     return {
-      label: ["positive"],
-      span_text: "donated to a pangolin rescue center... deserve all the protection",
-      reason:
-        "The post fundraises for a pangolin rescue and calls the animals worth protecting — a clear pro-conservation stance.",
+      label: ["health referral"],
+      span_text: text.match(/refer\w*|clinic|provider|intake appointment/i)?.[0] ?? text.slice(0, 60),
+      reason: "The note describes connecting the youth with a health or counseling service.",
     };
   }
-  if (t.includes("most trafficked mammal")) {
+  if (/(anxiety|sleep|coping|mood|wellbeing|well-being|breathing|stressors)/.test(t)) {
     return {
-      label: ["positive"],
-      span_text: "the most trafficked mammal on Earth... help stop the poaching",
-      reason:
-        "The post raises anti-trafficking awareness and urges people to help stop poaching — pro-conservation.",
-    };
-  }
-  if (t.includes("fresh pangolin scales")) {
-    return {
-      label: ["negative"],
-      span_text: "Fresh pangolin scales available now — traditional remedy",
-      reason:
-        "The post advertises pangolin scales for sale as a remedy, actively promoting the trade — against conservation.",
-    };
-  }
-  if (t.includes("delicacy")) {
-    return {
-      label: ["negative"],
-      span_text: "pangolin meat is a delicacy everyone should try",
-      reason:
-        "The post praises eating pangolin meat and normalizes consumption — against conservation.",
-    };
-  }
-  // Wrong on purpose: an affectionate toy post has no conservation stance (neutral).
-  if (t.includes("plushie")) {
-    return {
-      label: ["positive"],
-      span_text: "the cutest thing... pangolin plushie",
-      reason:
-        "The warm, affectionate tone toward pangolins reads as support for the species.",
-    };
-  }
-  // Wrong on purpose: a video-game mention has no conservation stance (neutral).
-  if (t.includes("video game")) {
-    return {
-      label: ["negative"],
-      span_text: "Rolled into a ball to dodge every attack",
-      reason:
-        "The mention of dodging attacks suggests the pangolin is being harmed or hunted.",
+      label: ["health discussion"],
+      span_text: text.match(/anxiety|sleep|coping|mood|wellbeing|well-being|breathing|stressors/i)?.[0] ?? text.slice(0, 60),
+      reason: "The note discusses health, emotional wellbeing, or coping without describing a referral.",
     };
   }
   return {
-    label: ["positive"],
+    label: ["neither"],
     span_text: text.slice(0, 60),
-    reason: "The post appears supportive of pangolins.",
+    reason: "The note focuses on practical support and does not describe a health referral or discussion.",
   };
 }
 
@@ -119,6 +82,14 @@ export const handlersReady = [
   http.get(`${API}/api/tasks/getTask/:taskId`, () => {
     return HttpResponse.json({ success: true, task: { ...demoTask, status: "ready" } });
   }),
+  http.get(`${API}/api/tasks/data-analysis/:taskId`, () => {
+    return HttpResponse.json({
+      success: true,
+      status: "ready",
+      rows: demoAnalysisRows,
+      headers: Object.keys(demoAnalysisRows[0]),
+    });
+  }),
   http.get(`${API}/api/annotate/get-annotations/:taskId`, () => {
     return HttpResponse.json({ success: true, annotations: demoAnnotations });
   }),
@@ -148,8 +119,8 @@ export const handlersReady = [
         return HttpResponse.json({
           success: true,
           rules: [
-            "If a post promotes rescuing, protecting, or raising awareness about pangolins, label positive.",
-            "If a post promotes selling, eating, or using pangolin parts, label negative.",
+            "If a note connects a youth with a clinic, provider, or counseling service, label health referral.",
+            "If a note discusses health or wellbeing without a service connection, label health discussion.",
           ],
         });
       }
@@ -157,8 +128,8 @@ export const handlersReady = [
         return HttpResponse.json({
           success: true,
           rules: [
-            "If a post blames pangolins for disease or wishes them harm, label negative.",
-            "If a post mentions pangolins with no stance — memes, games, plushies, or logos — label neutral.",
+            "If a note mentions anxiety, sleep, coping, mood, or wellbeing without a referral, label health discussion.",
+            "If a note only covers logistics, school, or paperwork, label neither.",
           ],
         });
       }
@@ -243,9 +214,9 @@ export const handlersReady = [
       total: 3,
       done: true,
       rows: [
-        { text: "Sample post one", generated_label: "positive" },
-        { text: "Sample post two", generated_label: "negative" },
-        { text: "Sample post three", generated_label: "not relevant" },
+        { text: demoAnalysisRows[0].Notes_anonymized, generated_label: "health referral" },
+        { text: demoAnalysisRows[2].Notes_anonymized, generated_label: "health discussion" },
+        { text: demoAnalysisRows[4].Notes_anonymized, generated_label: "neither" },
       ],
     });
   }),
