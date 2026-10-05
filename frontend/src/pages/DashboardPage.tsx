@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
+import type { AnnotationItem } from "@common/types/annotations";
 import type { Task } from "@common/types/tasks";
 
+import SessionDetails from "@/components/dashboard/SessionDetails";
 import TaskSummaryCard from "@/components/dashboard/TaskSummaryCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { getTaskAnnotations } from "@/services/annotations.service";
-import { downloadMetricsFile, getValEvalProgress, runValEvaluation } from "@/services/metrics.service";
+import { getValEvalProgress, runValEvaluation } from "@/services/metrics.service";
 import { getTaskById } from "@/services/tasks.service";
 import { isDashboardTabId, type DashboardTabId } from "@/types/dashboard";
 import { getSessionSummary, type SessionSummary } from "@/utils/dashboard/sessionMetrics";
@@ -21,6 +23,7 @@ export default function DashboardPage() {
 
   const [task, setTask] = useState<Task | null>(null);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
+  const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
@@ -42,8 +45,10 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         const loadedTask: Task = taskData.task ?? taskData;
+        const loadedAnnotations = annotationData.annotations ?? [];
         setTask(loadedTask);
-        setSessionSummary(getSessionSummary(annotationData.annotations ?? []));
+        setAnnotations(loadedAnnotations);
+        setSessionSummary(getSessionSummary(loadedAnnotations));
       })
       .catch(() => {
         if (!cancelled) toast.error("Failed to load dashboard data");
@@ -118,7 +123,7 @@ export default function DashboardPage() {
     }, 1500);
 
     try {
-      const result = await runValEvaluation(taskId, task?.codebook);
+      const result = await runValEvaluation(taskId);
       clearInterval(pollInterval);
 
       if (result.success && result.evalResults) {
@@ -132,23 +137,6 @@ export default function DashboardPage() {
       toast.error("Evaluation failed");
     } finally {
       setIsRunning(false);
-    }
-  };
-
-  const handleDownloadEvaluation = async () => {
-    const filename = task?.evalResults?.predictionsFilename;
-    if (!filename) return;
-
-    try {
-      const blob = await downloadMetricsFile(filename);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Failed to download evaluation results");
     }
   };
 
@@ -261,22 +249,15 @@ export default function DashboardPage() {
           </TabsList>
 
           <TabsContent value="session-details">
-            <DashboardPlaceholder>Session details will appear here.</DashboardPlaceholder>
+            <SessionDetails
+              task={task}
+              annotations={annotations}
+              evaluationTotal={progress.total}
+            />
           </TabsContent>
 
           <TabsContent value="model-performance">
-            <div className="flex items-center justify-between gap-4 py-3">
-              <p className="text-xs text-muted-foreground">Model performance will appear here.</p>
-              {task.evalResults?.predictionsFilename && (
-                <button
-                  type="button"
-                  onClick={handleDownloadEvaluation}
-                  className="!border-0 !p-0 !text-xs font-medium text-primary hover:underline"
-                >
-                  Download evaluation results
-                </button>
-              )}
-            </div>
+            <DashboardPlaceholder>Model performance coming next.</DashboardPlaceholder>
           </TabsContent>
 
           <TabsContent value="data-analysis">
