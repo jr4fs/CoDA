@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 
 MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+EMBEDDINGS_PROVIDER = "local"
 
 _model: SentenceTransformer | None = None
 

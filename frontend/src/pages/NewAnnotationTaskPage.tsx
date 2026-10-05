@@ -54,7 +54,7 @@ interface AnnotationTaskConfig {
 }
 
 const defaultConfig: AnnotationTaskConfig = {
-  selectedModel: "mistral:7b",
+  selectedModel: "qwen:32b",
   textColumn: "translated_text",
 };
 

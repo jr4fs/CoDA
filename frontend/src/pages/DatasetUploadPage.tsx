@@ -45,7 +45,7 @@ const DEFAULT_COVERAGE_SAMPLES =
   Number(import.meta.env.VITE_DEFAULT_COVERAGE_SAMPLES) || 15;
 
 const defaultUploadConfig: UploadConfig = {
-  selectedModel: "mistral:7b",
+  selectedModel: "qwen:32b",
   textColumn: "translated_text",
   labelColumn: "Final Label",
   coverageSampleSize: DEFAULT_COVERAGE_SAMPLES,
