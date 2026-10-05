@@ -7,7 +7,7 @@ export function normalizeDataset(
   rows: Record<string, unknown>[],
   config: DatasetColumnConfig,
 ): NormalizedRecord[] {
-  return rows.map((row, index) => {
+  return rows.map((row) => {
     const text = cleanString(row[config.textColumn]);
 
     const label = config.labelColumn
@@ -16,7 +16,7 @@ export function normalizeDataset(
 
     const id = config.idColumn
       ? cleanString(row[config.idColumn])
-      : String(index);
+      : "";
 
     const timestamp = config.timestampColumn
       ? parseTimestamp(row[config.timestampColumn])
@@ -30,6 +30,10 @@ export function normalizeDataset(
       raw: row,
     };
   });
+}
+
+export function countMultiLabelRows(rows: Record<string, unknown>[], labelColumn: string): number {
+  return rows.filter((row) => cleanString(row[labelColumn]).split(",").filter(Boolean).length > 1).length;
 }
 
 export function detectDatasetColumns(
@@ -50,7 +54,7 @@ export function detectDatasetColumns(
     ),
   );
   const labelColumn = findColumn(headers, (header) =>
-    /(^| )(generated label|label|classification|category)( |$)/.test(
+    /(^| )(generated label|tasklabel|task label|label|classification|category)( |$)/.test(
       normalizeHeader(header),
     ),
   );

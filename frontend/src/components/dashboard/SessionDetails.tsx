@@ -5,7 +5,10 @@ import { useMemo, useState } from "react";
 
 import {
   getSessionSummary,
+  getManualTimeEstimate,
   getUserFeedbackSummary,
+  DEMO_MANUAL_MINUTES_PER_EXAMPLE,
+  MANUAL_BENCHMARK_EXAMPLES,
   type UserFeedbackSummary,
 } from "@/utils/dashboard/sessionMetrics";
 import {
@@ -184,7 +187,7 @@ function EvaluationSetupCard({
     ["Model", task.modelName || "—"],
     ["Budget", budget > 0 ? `${budget} Samples` : "—"],
     ["Reviewed", budget > 0 ? `${reviewed}/${budget}` : String(reviewed)],
-    ["Evaluation Set", getFileName(task.valFile)],
+    ["Evaluation Set", getFileName(task.valFileName ?? task.valFile)],
     ["Dataset", getFileName(task.inputFileName ?? task.file)],
   ];
 
@@ -194,9 +197,9 @@ function EvaluationSetupCard({
 
       <dl className="mt-4 grid gap-3 text-xs leading-normal">
         {details.map(([label, value]) => (
-          <div key={label} className="flex items-start justify-between gap-3">
-            <dt className="text-[#666]">{label}</dt>
-            <dd className="max-w-[55%] text-right font-semibold break-words text-black">
+          <div key={label} className="flex min-w-0 items-center justify-between gap-3">
+            <dt className="shrink-0 text-[#666]">{label}</dt>
+            <dd className="min-w-0 max-w-[55%] truncate text-right font-semibold text-black" title={value}>
               {value}
             </dd>
           </div>
@@ -276,6 +279,7 @@ function UserFeedbackCard({
 }
 
 function TimeSpentCard({ actualTimeMs }: { actualTimeMs: number }) {
+  const { manualEstimateMs, savedMs } = getManualTimeEstimate(actualTimeMs);
   return (
     <section className={`${CARD_STYLES} min-h-[254px] xl:col-span-3`}>
       <CardTitle>Time Spent</CardTitle>
@@ -290,7 +294,7 @@ function TimeSpentCard({ actualTimeMs }: { actualTimeMs: number }) {
         <div
           className="relative mx-auto w-full max-w-sm"
           role="img"
-          aria-label="Estimated time is unavailable"
+          aria-label={savedMs === null ? "Time saved is unavailable until review time is recorded" : `${formatDuration(Math.abs(savedMs))} ${savedMs >= 0 ? "less" : "more"} than estimated manual annotation time`}
         >
           <svg
             viewBox="0 0 320 160"
@@ -307,19 +311,22 @@ function TimeSpentCard({ actualTimeMs }: { actualTimeMs: number }) {
           </svg>
 
           <div className="absolute inset-x-0 bottom-4 text-center">
-            <p className="text-[32px] font-semibold leading-[1.3] text-[#99a1af]">
-              —
+            <p className="text-[clamp(20px,2.2vw,28px)] font-semibold leading-[1.3] whitespace-nowrap text-[#99a1af]">
+              {savedMs === null ? "—" : `${savedMs < 0 ? "−" : ""}${formatDuration(Math.abs(savedMs))}`}
             </p>
-            <p className="text-xs leading-[15px] text-[#666]">Time Saved</p>
+            <p className="text-xs leading-[15px] text-[#666]">Estimated Time Saved</p>
           </div>
         </div>
 
         <TimeValue
-          value="—"
-          label="Estimated Session Time"
+          value={formatDuration(manualEstimateMs)}
+          label="Estimated Manual Benchmark"
           color="#74211b"
         />
       </div>
+      <p className="mt-3 text-[11px] leading-4 text-[#667085]">
+        Demo estimate: {MANUAL_BENCHMARK_EXAMPLES} manually annotated examples at {DEMO_MANUAL_MINUTES_PER_EXAMPLE} minutes each, compared with recorded active review time. Other work is not timed.
+      </p>
     </section>
   );
 }

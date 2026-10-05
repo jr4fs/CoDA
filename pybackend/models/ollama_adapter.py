@@ -104,9 +104,8 @@ class OpenRouterAdapter(BaseModel):
             headers=headers,
             timeout=180,
         )
-        # Not every model/provider accepts json_schema response_format. On a 4xx,
-        # retry once with a generic json_object (downstream code can still parse it).
-        if 400 <= r.status_code < 500 and payload.get("response_format", {}).get(
+        # Retry a schema-validation rejection, not authentication or rate-limit errors.
+        if r.status_code in (400, 422) and payload.get("response_format", {}).get(
             "type"
         ) == "json_schema":
             _logger.warning(

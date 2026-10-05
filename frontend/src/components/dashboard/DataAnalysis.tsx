@@ -1,7 +1,7 @@
 import type { Task } from "@common/types/tasks";
 import { ArrowUpDown, Eye, ListFilter, Search } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Rectangle, XAxis, YAxis } from "recharts";
 
 import RecordAnalyticsDialog, { type AnalysisLabel } from "@/components/dashboard/RecordAnalyticsDialog";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
@@ -11,7 +11,7 @@ import {
   getDatasetOverview, getIdSummaries, getLabelDistribution, getLabelDistributionOverTime,
   type IdSummary, type LabelDistributionItem, type LabelDistributionOverTime,
 } from "@/utils/dashboard/dashboardMetrics";
-import { detectDatasetColumns, normalizeDataset } from "@/utils/dashboard/normalizeDataset";
+import { countMultiLabelRows, detectDatasetColumns, normalizeDataset } from "@/utils/dashboard/normalizeDataset";
 
 type LoadState =
   | { status: "loading" }
@@ -48,9 +48,9 @@ export default function DataAnalysis({ task }: { task: Task }) {
   }, [task._id]);
 
   if (state.status === "loading") return <Status title="Loading data analysis…" loading />;
-  if (state.status === "pending") return <Status title="Data analysis is not available yet." description="Run full-dataset inference after finishing the codebook to populate these charts and record histories." />;
-  if (state.status === "error") return <Status title="Data analysis could not be loaded." description="The labeled dataset may be unavailable. Refresh the page or run full-dataset inference again." />;
-  if (!state.rows.length) return <Status title="The labeled dataset is empty." description="No records are available to summarize." />;
+  if (state.status === "pending") return <Status title="Data analysis is not available yet." description="Upload a labeled evaluation set to populate these charts." />;
+  if (state.status === "error") return <Status title="Data analysis could not be loaded." description="The evaluation set may be unavailable. Refresh the page or check the uploaded file." />;
+  if (!state.rows.length) return <Status title="The evaluation set is empty." description="No records are available to summarize." />;
   return <AnalysisView task={task} rows={state.rows} />;
 }
 
@@ -67,8 +67,9 @@ function AnalysisView({ task, rows }: { task: Task; rows: Record<string, string>
   const config = useMemo(() => detected ? {
     ...detected,
     textColumn: task.columns.find((column) => column in rows[0]) ?? detected.textColumn,
-    labelColumn: "generated_label" in rows[0] ? "generated_label" : detected.labelColumn,
-  } : undefined, [detected, rows, task.columns]);
+    labelColumn: task.labelColumn in rows[0] ? task.labelColumn : "taskLabel" in rows[0] ? "taskLabel" : detected.labelColumn,
+  } : undefined, [detected, rows, task.columns, task.labelColumn]);
+  const multiLabelCount = config?.labelColumn ? countMultiLabelRows(rows, config.labelColumn) : 0;
   const records = useMemo(() => {
     if (!config) return [];
     const known = new Map(labels.map((label) => [canonical(label.key), label.key]));
@@ -78,46 +79,56 @@ function AnalysisView({ task, rows }: { task: Task; rows: Record<string, string>
     }));
   }, [config, labels, rows]);
 
-  if (!config?.idColumn) return <Status title="An ID column could not be detected." description="This version recognizes participant, client, patient, case, youth, record, and generic ID column names." />;
-  if (!config.labelColumn || !labels.length) return <Status title="Labels could not be matched." description="The output must contain generated_label values matching the task labels." />;
-  return <ReadyAnalysis records={records} labels={labels} hasTimestamp={Boolean(config.timestampColumn)} />;
+  if (!config) return <Status title="Evaluation columns could not be detected." description="Check the uploaded CSV columns." />;
+  if (!config.labelColumn || !labels.length) return <Status title="Labels could not be matched." description="The evaluation set needs labels matching the task labels." />;
+  return <ReadyAnalysis records={records} labels={labels} hasTimestamp={Boolean(config.timestampColumn)} multiLabelCount={multiLabelCount} />;
 }
 
-function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedRecord[]; labels: AnalysisLabel[]; hasTimestamp: boolean }) {
+function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { records: NormalizedRecord[]; labels: AnalysisLabel[]; hasTimestamp: boolean; multiLabelCount: number }) {
   const [mode, setMode] = useState<ChartMode>("proportion");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("latest");
   const [filter, setFilter] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(50);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const overview = useMemo(() => getDatasetOverview(records), [records]);
   const distribution = useMemo(() => getLabelDistribution(records), [records]);
   const timeData = useMemo(() => getLabelDistributionOverTime(records), [records]);
   const summaries = useMemo(() => getIdSummaries(records), [records]);
+  const listedIds = useMemo(() => summaries.filter((item) => item.id.trim()), [summaries]);
+  const selectedLabel = labels.find((label) => label.key === filter);
+  const overallShare = distribution.find((item) => item.label === filter)?.proportion ?? 0;
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return summaries.filter((item) => item.id.trim())
+    return listedIds
       .filter((item) => !query || item.id.toLowerCase().includes(query))
-      .filter((item) => filter === "all" || (item.labelCounts[filter] ?? 0) > 0)
+      .filter((item) => {
+        if (filter === "all") return true;
+        const labeledCount = Object.values(item.labelCounts).reduce((sum, count) => sum + count, 0);
+        return labeledCount > 0 && (item.labelCounts[filter] ?? 0) / labeledCount > overallShare;
+      })
       .sort((a, b) => compare(a, b, sort));
-  }, [filter, search, sort, summaries]);
-  const selectedIndex = visible.findIndex((item) => item.id === selectedId);
-  const selected = selectedIndex < 0 ? null : visible[selectedIndex];
+  }, [filter, listedIds, overallShare, search, sort]);
+  const page = visible.slice(0, visibleCount);
+  const selectedIndex = page.findIndex((item) => item.id === selectedId);
+  const selected = selectedIndex < 0 ? null : page[selectedIndex];
   const missingIds = records.filter((record) => !record.id.trim()).length;
   const labeled = records.filter((record) => record.label).length;
   const timeRepresented = records.filter((record) => record.label && record.timestamp).length;
+  const hasIds = overview.uniqueIds > 0;
 
   return (
-    <div className="grid gap-3">
-      <section className={`${CARD} flex flex-col gap-5 md:flex-row md:items-center md:justify-between`}>
-        <Heading title="Dataset Overview" description="High-level statistics from the fully labeled dataset" />
-        <dl className="grid grid-cols-3 gap-5 sm:gap-8">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
+      <section className={`${CARD} min-w-0 flex flex-col gap-5 md:flex-row md:items-center md:justify-between`}>
+        <Heading title="Evaluation Set Overview" description="High-level statistics from the uploaded labeled evaluation set" />
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-8">
           <Metric label="Total Entries" value={overview.totalEntries} />
-          <Metric label="Total Unique IDs" value={overview.uniqueIds} />
-          <Metric label="Average Entries Per ID" value={overview.averageEntriesPerId.toFixed(2)} />
+          <Metric label="Total Unique IDs" value={hasIds ? overview.uniqueIds : "—"} />
+          <Metric label="Average Entries Per ID" value={hasIds ? overview.averageEntriesPerId.toFixed(2) : "—"} />
         </dl>
       </section>
 
-      <div className="grid items-stretch gap-3 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-3 xl:grid-cols-[0.95fr_1.05fr]">
       <Card>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <Heading
@@ -146,6 +157,12 @@ function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedR
       </Card>
       <Card>
         <Heading title="Label Distribution" description={`Value counts and percentages · ${labeled.toLocaleString()} of ${records.length.toLocaleString()} recognized`} />
+        {multiLabelCount > 0 && <p className="mt-2 text-xs leading-5 text-[#667085]">
+          {multiLabelCount.toLocaleString()} {multiLabelCount === 1 ? "entry contains" : "entries contain"} multiple labels. These single-label charts exclude them; evaluation metrics still count each listed label.
+        </p>}
+        {labeled < records.length && <p className="mt-2 text-xs leading-5 text-[#667085]">
+          {(records.length - labeled).toLocaleString()} {records.length - labeled === 1 ? "entry has" : "entries have"} a missing or unrecognized label and {records.length - labeled === 1 ? "is" : "are"} excluded from label charts.
+        </p>}
         {distribution.length ? (
           <OverallChart data={distribution} labels={labels} />
         ) : (
@@ -154,17 +171,18 @@ function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedR
       </Card>
     </div>
 
-    <section className={`${CARD} p-4 sm:p-6`}>
+    {!hasIds && <section className={CARD}><Heading title="Record histories unavailable" description="The evaluation set has no usable ID column, so entries cannot be grouped into histories." /></section>}
+    {hasIds && <section className={`${CARD} p-4 sm:p-6`}>
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_112px_124px]">
         <label className="relative block">
           <span className="sr-only">Search by ID</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => setSearch(event.target.value)} />
+          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => { setSearch(event.target.value); setVisibleCount(50); }} />
         </label>
         <label className="relative">
           <span className="sr-only">Sort records</span>
           <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => setSort(event.target.value as SortOption)}>
+          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => { setSort(event.target.value as SortOption); setVisibleCount(50); }}>
             <option value="latest">Sort By</option>
             <option value="oldest">Oldest activity</option>
             <option value="notes">Most notes</option>
@@ -174,13 +192,16 @@ function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedR
         <label className="relative">
           <span className="sr-only">Filter by label</span>
           <ListFilter className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={filter} className={selectClass + " w-full pl-8"} onChange={(event) => setFilter(event.target.value)}>
+          <select value={filter} className={selectClass + " w-full pl-8"} onChange={(event) => { setFilter(event.target.value); setVisibleCount(50); }}>
             <option value="all">Filter</option>
-            {labels.map((label) => <option key={label.key} value={label.key}>{label.label}</option>)}
+            {labels.map((label) => <option key={label.key} value={label.key}>More {label.label}</option>)}
           </select>
         </label>
       </div>
-      {missingIds > 0 && <p className="mt-3 text-[10px] text-muted-foreground">{missingIds.toLocaleString()} entries without an ID remain in dataset totals but not the record list.</p>}
+      <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
+        Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()} matching IDs{selectedLabel ? ` with above-average ${selectedLabel.label} share (${Math.round(overallShare * 100)}% overall)` : ""}.
+      </p>
+      {missingIds > 0 && <p className="mt-3 text-xs text-muted-foreground">{missingIds.toLocaleString()} entries without an ID remain in evaluation totals but not the record list.</p>}
       <div className="mt-5 overflow-x-auto">
         <table className="w-full min-w-[820px] table-fixed text-left text-xs">
           <caption className="sr-only">Per-ID label distribution and recent activity</caption>
@@ -201,7 +222,7 @@ function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedR
             </tr>
           </thead>
           <tbody>
-            {visible.length ? visible.map((summary) => (
+            {page.length ? page.map((summary) => (
               <tr key={summary.id} className="h-12 align-middle">
                 <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{summary.id}</td>
                 <td className="pr-8"><DistributionBar summary={summary} labels={labels} /></td>
@@ -219,14 +240,17 @@ function ReadyAnalysis({ records, labels, hasTimestamp }: { records: NormalizedR
           </tbody>
         </table>
       </div>
-    </section>
+      {page.length < visible.length && <button type="button" className="mt-4 rounded-md border border-border px-4 py-2 text-xs text-primary hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setVisibleCount((count) => count + 50)}>
+        Load 50 more IDs
+      </button>}
+    </section>}
       <RecordAnalyticsDialog
         open={Boolean(selected)}
         summary={selected}
         records={selectedId ? records.filter((record) => record.id === selectedId) : []}
         labels={labels}
-        previousId={selectedIndex > 0 ? visible[selectedIndex - 1]?.id : undefined}
-        nextId={visible[selectedIndex + 1]?.id}
+        previousId={selectedIndex > 0 ? page[selectedIndex - 1]?.id : undefined}
+        nextId={page[selectedIndex + 1]?.id}
         onSelectId={setSelectedId}
         onOpenChange={(open) => !open && setSelectedId(null)}
       />
@@ -238,7 +262,7 @@ function TimeChart({ data, labels, mode }: { data: LabelDistributionOverTime[]; 
   const config = Object.fromEntries(
     labels.map((label, index) => [`label${index}`, { label: label.label, color: label.color }]),
   ) satisfies ChartConfig;
-  const rows = data.map((point) => ({
+  const rows: Array<Record<string, number | string>> = data.map((point) => ({
     period: formatPeriod(point.period),
     ...Object.fromEntries(labels.map((label, index) => [
       `label${index}`,
@@ -280,9 +304,14 @@ function TimeChart({ data, labels, mode }: { data: LabelDistributionOverTime[]; 
               stackId="labels"
               fill={`var(--color-label${index})`}
               maxBarSize={34}
-              radius={index === 0 ? [0, 0, 4, 4] : index === labels.length - 1 ? [4, 4, 0, 0] : 0}
               stroke="white"
               strokeWidth={1}
+              shape={(props) => {
+                const row = props.payload as Record<string, number>;
+                const bottom = labels.slice(0, index).every((_, labelIndex) => !row[`label${labelIndex}`]);
+                const top = labels.slice(index + 1).every((_, offset) => !row[`label${index + offset + 1}`]);
+                return <Rectangle {...props} radius={[top ? 4 : 0, top ? 4 : 0, bottom ? 4 : 0, bottom ? 4 : 0]} />;
+              }}
             >
               <LabelList
                 dataKey={`label${index}`}
@@ -391,7 +420,7 @@ function Legend({ labels, align = "center" }: { labels: AnalysisLabel[]; align?:
 }
 
 function Card({ children }: { children: ReactNode }) {
-  return <section className={`${CARD} flex min-h-[300px] flex-col`}>{children}</section>;
+  return <section className={`${CARD} flex min-h-[300px] min-w-0 flex-col`}>{children}</section>;
 }
 
 function Heading({ title, description }: { title: string; description: string }) {

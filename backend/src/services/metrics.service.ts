@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import axios from "axios";
 import { Response } from "express";
 import { AnnotationItem } from "@common/types/annotations";
@@ -652,6 +652,7 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     return res.status(400).json({ success: false, message: "Invalid evaluation stage" });
   }
 
+  let baselineRunId: string | undefined;
   try {
     const taskCollection = getCollection<Task>(
       process.env.TASKS_COLLECTION_NAME || "TaskDetails",
@@ -693,6 +694,12 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
           snapshot.evaluationKey === evaluationKey,
       );
       if (existingBaseline) {
+        if (task.baselineStatus !== "ready") {
+          await taskCollection.updateOne(
+            { _id: taskQueryId as any, userID: userId, baselineStatus: { $ne: "running" } },
+            { $set: { baselineStatus: "ready", baselineEvaluationKey: evaluationKey } },
+          );
+        }
         return res.status(200).json({
           success: true,
           evalResults: existingBaseline.results,
@@ -715,6 +722,36 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
           message:
             "A true baseline cannot be created after guide review has started.",
         });
+      }
+      baselineRunId = randomUUID();
+      const staleBefore = new Date(Date.now() - 65 * 60 * 1000).toISOString();
+      const claim = await taskCollection.updateOne(
+        {
+          _id: taskQueryId as any, userID: userId,
+          $or: [
+            { baselineStatus: { $ne: "running" } },
+            { baselineStartedAt: { $lt: staleBefore } },
+            { baselineStartedAt: { $exists: false } },
+          ],
+        },
+        { $set: {
+          baselineStatus: "running", baselineEvaluationKey: evaluationKey,
+          baselineStartedAt: new Date().toISOString(), baselineRunId,
+        } },
+      );
+      if (!claim.modifiedCount) {
+        return res.status(202).json({ success: true, inProgress: true, evaluationKey });
+      }
+      const claimedTask = await taskCollection.findOne({ _id: taskQueryId as any, userID: userId });
+      const completedBaseline = claimedTask?.evaluationHistory?.find(
+        (snapshot) => snapshot.stage === "baseline" && snapshot.evaluationKey === evaluationKey,
+      );
+      if (completedBaseline) {
+        await taskCollection.updateOne(
+          { _id: taskQueryId as any, userID: userId, baselineRunId },
+          { $set: { baselineStatus: "ready" } },
+        );
+        return res.status(200).json({ success: true, evalResults: completedBaseline.results, evaluationSnapshot: completedBaseline, alreadyExists: true });
       }
     }
 
@@ -880,18 +917,22 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       results: evalResults,
     };
     if (stage === "baseline") {
-      await taskCollection.updateOne(
+      const saved = await taskCollection.updateOne(
         {
           _id: taskQueryId as any,
           userID: userId,
+          baselineRunId,
           evaluationHistory: {
             $not: {
               $elemMatch: { stage: "baseline", evaluationKey },
             },
           },
         },
-        { $push: { evaluationHistory: evaluationSnapshot } },
+        { $push: { evaluationHistory: evaluationSnapshot }, $set: { baselineStatus: "ready" } },
       );
+      if (!saved.modifiedCount) {
+        return res.status(409).json({ success: false, message: "The initial evaluation was superseded. Retry before reviewing." });
+      }
     } else {
       await taskCollection.updateOne(
         { _id: taskQueryId as any, userID: userId },
@@ -917,10 +958,20 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       evaluationSnapshot,
     });
   } catch (error: any) {
+    if (stage === "baseline" && userId && taskId && baselineRunId) {
+      const taskQueryId = ObjectId.isValid(taskId) ? new ObjectId(taskId) : taskId;
+      await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+        .updateOne({ _id: taskQueryId as any, userID: userId, baselineRunId }, { $set: { baselineStatus: "failed" } })
+        .catch(() => {});
+    }
     console.error("Error running val evaluation:", error);
-    return res.status(500).json({
+    const upstreamDetail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+    const upstreamStatus = axios.isAxiosError(error) ? error.response?.status : undefined;
+    return res.status(upstreamStatus === 409 ? 409 : 500).json({
       success: false,
-      message: error.message || "Failed to run val evaluation",
+      message: typeof upstreamDetail === "string"
+        ? upstreamDetail
+        : "Final evaluation could not finish. No results were saved; check the model service logs before retrying.",
     });
   }
 }

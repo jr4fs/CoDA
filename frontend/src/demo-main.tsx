@@ -1,5 +1,6 @@
 import { setupWorker } from "msw/browser";
 import { createRoot } from "react-dom/client";
+import "./index.css";
 import DemoApp from "./demo/DemoApp";
 import { handlersWildlife } from "./demo/mswHandlers";
 

@@ -121,6 +121,11 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
         onOpenChange(false);
       }}
       onClose={() => onOpenChange(false)}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onOpenChange(false);
+      }}
     >
       <div className="grid gap-3 p-4 sm:p-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

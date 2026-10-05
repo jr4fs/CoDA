@@ -56,15 +56,33 @@ export default function ModelPerformance({
   task,
   annotations,
 }: ModelPerformanceProps) {
-  const baseline = getCompatibleBaseline(task)?.results;
+  const realBaseline = getCompatibleBaseline(task)?.results;
+  const demoBaseline = realBaseline ? undefined : task.demoBaseline;
+  const baseline = realBaseline ?? demoBaseline;
+  const baselineLabel = demoBaseline ? "Demo reference" : "Baseline";
+  const baselineRecorded = task.evaluationHistory?.some((snapshot) => snapshot.stage === "baseline");
 
   return (
     <div className="grid gap-4">
+      {!task.evalResults && <p className="text-xs leading-5 text-[#667085]" role="status">
+        Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on the evaluation set only.
+      </p>}
+      {demoBaseline && <p className="text-xs leading-5 text-[#667085]" role="note">
+        Demo reference predicts the most common label in the uploaded evaluation set for every sample. No model inference was run; comparisons are illustrative, not measured codebook improvement.
+      </p>}
+      {!baseline && <p className="text-xs leading-5 text-[#667085]" role="status">
+        {baselineRecorded
+          ? task.evalResults
+            ? "A comparable initial evaluation is unavailable for this evaluation set."
+            : "The initial evaluation is saved; comparisons will appear after the final evaluation."
+          : "No comparison reference is available for this task."}
+      </p>}
       <div className="grid items-stretch gap-4 xl:grid-cols-2">
         <F1HistoryCard task={task} annotations={annotations} />
         <MetricBreakdownCard
           finalResults={task.evalResults}
           baselineResults={baseline}
+          baselineLabel={baselineLabel}
         />
       </div>
 
@@ -80,16 +98,17 @@ export default function ModelPerformance({
         <LabelPerformanceCard
           task={task}
           baselineResults={baseline}
+          baselineLabel={baselineLabel}
           className="xl:col-span-4"
         />
       </div>
 
-      {baseline &&
-        getWrongPredictionCount(baseline) !== null &&
+      {realBaseline &&
+        getWrongPredictionCount(realBaseline) !== null &&
         getWrongPredictionCount(task.evalResults) !== null && (
           <div className="grid gap-4 xl:grid-cols-10">
             <ErrorReductionCard
-              baselineResults={baseline}
+              baselineResults={realBaseline}
               finalResults={task.evalResults}
               className="xl:col-span-3"
             />
@@ -201,8 +220,8 @@ function F1HistoryCard({
                 stroke="var(--color-f1)"
                 strokeWidth={2}
                 fill="url(#reviewed-f1-fill)"
-                dot={{ r: 3, fill: "var(--color-f1)" }}
-                activeDot={{ r: 5 }}
+                dot={{ r: 4, fill: "var(--chart-accepted)", fillOpacity: 1, stroke: "var(--chart-accepted)", strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: "var(--chart-accepted)", fillOpacity: 1, stroke: "var(--chart-accepted)" }}
               />
             </AreaChart>
           </ChartContainer>
@@ -246,9 +265,11 @@ function F1HistoryCard({
 function MetricBreakdownCard({
   finalResults,
   baselineResults,
+  baselineLabel = "Baseline",
 }: {
   finalResults?: EvalResults;
   baselineResults?: EvalResults;
+  baselineLabel?: string;
 }) {
   const data = getMetricBreakdown(finalResults, baselineResults).map((item) => ({
     ...item,
@@ -266,7 +287,7 @@ function MetricBreakdownCard({
         <CardTitle>Metric Breakdown</CardTitle>
         <div className="flex flex-wrap justify-end gap-3">
           {hasBaseline && (
-            <ChartKey color="var(--chart-baseline)">Baseline</ChartKey>
+            <ChartKey color="var(--chart-baseline)">{baselineLabel}</ChartKey>
           )}
           <ChartKey color="var(--chart-final)">Final Evaluation</ChartKey>
         </div>
@@ -311,7 +332,7 @@ function MetricBreakdownCard({
                   <ChartTooltipContent
                     formatter={(value, name) => (
                       <TooltipValue
-                        label={name === "baseline" ? "Baseline" : "Final"}
+                        label={name === "baseline" ? baselineLabel : "Final"}
                         value={`${Number(value).toFixed(1)}%`}
                       />
                     )}
@@ -365,7 +386,7 @@ function MetricBreakdownCard({
           </dl>
         </>
       ) : (
-        <EmptyState>No final evaluation is available.</EmptyState>
+        <EmptyState>Run final evaluation to see these metrics.</EmptyState>
       )}
     </DashboardCard>
   );
@@ -398,19 +419,13 @@ function FinalEvaluationCard({
       </div>
 
       {evalResults ? (
-        <div className="flex flex-1 flex-col justify-center gap-8 pt-4">
-          <dl className="grid grid-cols-3 items-end gap-2 text-center">
-            <EvaluationMetric
-              label="Precision"
-              value={evalResults.macroPrecision}
-            />
-            <EvaluationMetric
-              label="F1 Score"
-              value={evalResults.macroF1}
-              primary
-              tone="green"
-            />
-            <EvaluationMetric label="Recall" value={evalResults.macroRecall} />
+        <div className="flex flex-1 flex-col gap-4 pt-4">
+          <dl className="flex flex-1 flex-col justify-evenly gap-4 text-center">
+            <EvaluationMetric label="F1 Score" value={evalResults.macroF1} primary tone="green" />
+            <div className="grid grid-cols-2 gap-4">
+              <EvaluationMetric label="Precision" value={evalResults.macroPrecision} />
+              <EvaluationMetric label="Recall" value={evalResults.macroRecall} />
+            </div>
           </dl>
 
           <dl className="grid gap-3 border-t border-[#f0f1f3] pt-4 text-xs leading-5">
@@ -425,7 +440,7 @@ function FinalEvaluationCard({
           </dl>
         </div>
       ) : (
-        <EmptyState>No final evaluation is available.</EmptyState>
+        <EmptyState>Run final evaluation to see these metrics.</EmptyState>
       )}
     </DashboardCard>
   );
@@ -445,14 +460,16 @@ function PredictionErrorsCard({
       <div className="flex items-center gap-1.5">
         <CardTitle>Prediction Errors</CardTitle>
         <InfoTooltip label="About prediction errors">
-          These counts come from the held-out final evaluation. They count
-          label decisions rather than samples, so one multi-label sample can
-          contribute more than one mistake.
+          A sample is wrong when its complete predicted label set differs from
+          the expected set. One wrong sample can have both an added and a missed
+          label, so label-decision counts can exceed the number of wrong samples.
         </InfoTooltip>
       </div>
 
       {!profile ? (
-        <EmptyState>Per-label error counts are not available.</EmptyState>
+        <EmptyState>{getWrongPredictionCount(evalResults) === null
+          ? "Per-label error counts are not available."
+          : `${getWrongPredictionCount(evalResults)} of ${evalResults!.numSamples} samples had an incorrect label set. Per-label error counts are unavailable.`}</EmptyState>
       ) : profile.totalErrors === 0 ? (
         <div className="grid flex-1 place-items-center py-8 text-center">
           <div>
@@ -464,12 +481,13 @@ function PredictionErrorsCard({
         </div>
       ) : (
         <>
-          <div className="mt-5 flex items-baseline gap-2">
+          <div className="mt-5 flex items-baseline gap-2 whitespace-nowrap">
             <span className="text-[34px] font-semibold leading-none text-[#d35f5f]">
-              {profile.totalErrors}
+              {getWrongPredictionCount(evalResults)?.toLocaleString() ?? "—"}
             </span>
-            <span className="text-xs text-[#667085]">label mistakes from {evalResults!.numSamples.toLocaleString()} samples</span>
+            <span className="text-[11px] text-[#667085]">of {evalResults!.numSamples.toLocaleString()} samples had an incorrect label set</span>
           </div>
+          <p className="mt-2 text-xs text-[#667085]">{profile.totalErrors.toLocaleString()} individual label decisions were wrong; one sample can contribute more than one.</p>
 
           <dl className="mt-5 grid gap-4">
             <ErrorCountRow
@@ -477,7 +495,7 @@ function PredictionErrorsCard({
               count={profile.falsePositives}
               total={profile.totalErrors}
               color="var(--chart-corrected)"
-              definition="A label was applied when it should not have been."
+              definition="An extra label was added."
             />
             <ErrorCountRow
               term="Missed"
@@ -504,10 +522,12 @@ function PredictionErrorsCard({
 function LabelPerformanceCard({
   task,
   baselineResults,
+  baselineLabel = "Baseline",
   className,
 }: {
   task: Task;
   baselineResults?: EvalResults;
+  baselineLabel?: string;
   className?: string;
 }) {
   const data = getLabelPerformance(
@@ -553,7 +573,7 @@ function LabelPerformanceCard({
         <CardTitle>Label Performance</CardTitle>
         <div className="flex flex-wrap justify-end gap-3">
           {hasBaseline && (
-            <ChartKey color="var(--chart-baseline)">Baseline F1</ChartKey>
+            <ChartKey color="var(--chart-baseline)">{baselineLabel} F1</ChartKey>
           )}
           <ChartKey color="var(--chart-final)">Final F1</ChartKey>
         </div>
@@ -566,7 +586,7 @@ function LabelPerformanceCard({
               config={labelChartConfig}
               className="mt-3 w-full aspect-auto"
               style={{ height: chartHeight }}
-              aria-label="Baseline and final F1 score for each configured label"
+              aria-label={`${baselineLabel} and final F1 score for each configured label`}
             >
               <BarChart
                 accessibilityLayer
@@ -596,7 +616,7 @@ function LabelPerformanceCard({
                   tickLine={false}
                   tick={{ fill: "var(--chart-axis)", fontSize: 11 }}
                 />
-                <ChartTooltip content={<ScoreTooltip />} />
+                <ChartTooltip content={<ScoreTooltip baselineLabel={`${baselineLabel} F1`} />} />
                 <Bar
                   dataKey="baselineScore"
                   fill="var(--color-baselineScore)"
@@ -684,7 +704,7 @@ function LabelPerformanceCard({
             />
             {hasBaseline && largestChange ? (
               <LabelInsight
-                label="Largest gain"
+                label={baselineLabel === "Demo reference" ? "Largest difference" : "Largest gain"}
                 value={`${largestChange.label} · ${formatPointChange(largestChange.score - largestChange.baselineScore)}`}
               />
             ) : (
@@ -799,7 +819,7 @@ function EvaluationMetric({
   return (
     <div className="min-w-0">
       <dd
-        className={`${primary ? "text-[34px]" : "text-[26px]"} font-semibold leading-none ${tone === "green" ? "text-[#33996b]" : "text-[#396bc6]"}`}
+        className={`${primary ? "text-[36px]" : "text-[24px]"} whitespace-nowrap font-semibold leading-none tabular-nums ${tone === "green" ? "text-[#33996b]" : "text-[#396bc6]"}`}
       >
         {formatScore(value)}
       </dd>
@@ -899,12 +919,12 @@ function TooltipValue({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ScoreTooltip() {
+function ScoreTooltip({ baselineLabel = "Baseline F1" }: { baselineLabel?: string }) {
   return (
     <ChartTooltipContent
       formatter={(value, name) => (
         <TooltipValue
-          label={name === "baselineScore" ? "Baseline F1" : "Final F1"}
+          label={name === "baselineScore" ? baselineLabel : "Final F1"}
           value={`${Number(value).toFixed(1)}%`}
         />
       )}

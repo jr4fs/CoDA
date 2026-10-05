@@ -19,6 +19,7 @@ import {
   useMantineColorScheme,
 } from "@mantine/core";
 import {IconAlertCircle, IconArrowRight, IconBraces, IconDownload, IconFileTypeCsv, IconUpload,} from "@tabler/icons-react";
+import {isAxiosError} from "axios";
 import {type ReactNode, useCallback, useState, useEffect} from "react";
 import {useNavigate} from "react-router-dom";
 import StepTrackerBanner from "../components/StepTrackerBanner";
@@ -302,10 +303,12 @@ export default function DatasetUploadPage() {
         },
       });
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Failed to upload files.");
+      if (isAxiosError<{message?: string}>(err)) {
+        setError(err.response?.status === 400
+          ? err.response.data?.message || "Check the uploaded files and column names."
+          : "Upload failed. Please try again.");
       } else {
-        setError("Failed to upload files.");
+        setError(err instanceof Error ? err.message : "Upload failed. Please try again.");
       }
     } finally {
       setIsUploading(false);
@@ -600,7 +603,7 @@ export default function DatasetUploadPage() {
             </Grid>
 
             {error && (
-              <Alert icon={<IconAlertCircle size={16}/>} color="red" variant="light">
+              <Alert icon={<IconAlertCircle size={16}/>} color="red" variant="light" role="alert">
                 {error}
               </Alert>
             )}

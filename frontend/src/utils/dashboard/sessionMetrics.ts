@@ -15,6 +15,14 @@ export interface UserFeedbackSummary {
   total: number;
 }
 
+export const MANUAL_BENCHMARK_EXAMPLES = 593;
+export const DEMO_MANUAL_MINUTES_PER_EXAMPLE = 3;
+
+export function getManualTimeEstimate(actualTimeMs: number) {
+  const manualEstimateMs = MANUAL_BENCHMARK_EXAMPLES * DEMO_MANUAL_MINUTES_PER_EXAMPLE * 60_000;
+  return { manualEstimateMs, savedMs: actualTimeMs > 0 ? manualEstimateMs - actualTimeMs : null };
+}
+
 export function getSessionSummary(
   annotations: AnnotationItem[],
 ): SessionSummary {

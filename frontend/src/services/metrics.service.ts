@@ -68,6 +68,8 @@ export interface RunValEvalResponse {
   evalResults?: EvalResults;
   evaluationSnapshot?: EvaluationSnapshot;
   alreadyExists?: boolean;
+  inProgress?: boolean;
+  evaluationKey?: string;
   message?: string;
 }
 

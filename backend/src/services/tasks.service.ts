@@ -26,6 +26,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import zlib from "zlib";
 import { AnnotationItem } from "@common/types/annotations";
+import { createDemoBaseline } from "../utils/demoBaseline";
 dotenv.config();
 
 interface TaskValidation {
@@ -575,10 +576,21 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
       });
     }
 
+    let demoBaseline = task.demoBaseline;
+    if (!demoBaseline && task.valFile) {
+      try {
+        const rows = parseCsvBuffer(await fs.readFile(getValDatasetPath(path.basename(task.valFile))));
+        demoBaseline = createDemoBaseline(rows, task.columns?.[0] ?? "text", task.labelColumn, task.labels.map((label) => label.name));
+      } catch {
+        // Older tasks without an accessible evaluation CSV remain partial.
+      }
+    }
+
     return res.status(200).json({
       success: true,
       task: {
         ...task,
+        demoBaseline,
         status: task.status ?? "ready",
       },
     });
@@ -591,9 +603,7 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
   }
 }
 
-// Return the persisted, full-dataset labels for an owned task. File references
-// may be absolute paths from the inference service, so resolve only their
-// basename inside annotation_outputs before reading them.
+// Summarize the uploaded labeled evaluation set; full-dataset inference is not required.
 export async function getDataAnalysisData(req: AuthRequest, res: Response) {
   const userID = req.user?.userId;
   const { taskId } = req.params;
@@ -608,14 +618,12 @@ export async function getDataAnalysisData(req: AuthRequest, res: Response) {
     const task = await taskCollection.findOne({ _id: new ObjectId(taskId) as any, userID });
     if (!task) return res.status(404).json({ success: false, message: "Task not found" });
 
-    const fileReference = task.finalInferenceFile || task.outputFile;
+    const fileReference = task.valFile;
     if (!fileReference) {
       return res.status(200).json({ success: true, status: "pending", rows: [], headers: [] });
     }
     const safeName = path.basename(fileReference);
-
-    ensureAnnotationOutputsDir();
-    const filePath = getAnnotationOutputPath(safeName);
+    const filePath = getValDatasetPath(safeName);
     const csvText = await fs.readFile(filePath, "utf-8");
     const parsed = Papa.parse<Record<string, string>>(csvText, {
       header: true,
@@ -1025,36 +1033,23 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     console.log("[uploadTaskBundle] Validating columns...");
     const valColumns = getColumnsFromRows(valRows);
 
-    if (textColumn) {
-      const hasValText = valColumns.includes(textColumn);
-      const hasValLabel =
-        valColumns.includes(labelColumn) || valColumns.includes("taskLabel");
-      const hasRestText = restColumns.includes(textColumn);
-
-      if (!hasValText || !hasValLabel) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for val data:",
-          valColumns,
-          hasValText,
-          hasValLabel,
-        );
-        return res.status(400).json({
-          success: false,
-          message:
-            "The labeled dataset must include text and task_label columns.",
-        });
-      }
-
-      if (!hasRestText) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for rest data:",
-          restColumns,
-        );
-        return res.status(400).json({
-          success: false,
-          message: "The unlabeled dataset must include a text column.",
-        });
-      }
+    if (textColumn && !valColumns.includes(textColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
+    }
+    if (!valColumns.includes(labelColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${labelColumn}" label column. Enter its exact header under Label column name.`,
+      });
+    }
+    if (textColumn && !restColumns.includes(textColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
     }
 
     // Ensure Directories and Write Files
@@ -1085,11 +1080,14 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       file: uploadFilename,
       restFile: uploadFilename,
       valFile: valFilename,
+      valFileName: dValFile.originalname,
+      inputFileName: dAllFile.originalname,
       columns: textColumn ? [textColumn] : ["text"],
       userID: userID,
       labelColumn: labelColumn,
       modelName: modelName ?? "",
       status: "sampling_pending",
+      demoBaseline: createDemoBaseline(valRows, textColumn ?? "text", labelColumn, labels.map((label) => label.name)),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

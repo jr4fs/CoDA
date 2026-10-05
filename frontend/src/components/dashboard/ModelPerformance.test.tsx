@@ -28,7 +28,8 @@ describe("ModelPerformance", () => {
     const html = render(<ModelPerformance task={baseTask} annotations={[]} />);
 
     expect(html).toContain("Your performance trend will appear");
-    expect(html).toContain("No final evaluation is available.");
+    expect(html).toContain("Run final evaluation to see these metrics.");
+    expect(html).toContain("This runs model inference on the evaluation set only.");
     expect(html).toContain("Per-label error counts are not available.");
     expect(html).not.toContain("Baseline was not captured");
     expect(html).not.toContain("Error Reduction");
@@ -78,6 +79,15 @@ describe("ModelPerformance", () => {
     expect(html).toContain("Largest gain");
     expect(html).toContain("Error Reduction");
     expect(html).toContain("66.7%");
+  });
+
+  it("marks the majority-label demo reference without claiming model error reduction", () => {
+    const task = fullTask();
+    const html = render(<ModelPerformance task={{ ...task, demoBaseline: task.evalResults }} annotations={[]} />);
+
+    expect(html).toContain("Demo reference predicts the most common label");
+    expect(html).toContain("Demo reference F1");
+    expect(html).not.toContain("Error Reduction");
   });
 
   it("renders cumulative batch history from completed guide reviews", () => {

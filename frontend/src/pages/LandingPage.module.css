@@ -109,6 +109,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+}
+
+.tabButton > span {
+  display: inline-flex;
+  align-items: center;
 }
 
 .tabButton:hover:not(:disabled) {
@@ -997,6 +1003,11 @@
 @media (max-width: 768px) {
   .navbar {
     padding: 12px 16px;
+  }
+
+  .tabButton {
+    padding: 8px 10px;
+    font-size: 0.875rem;
   }
 
   .navbarContent {

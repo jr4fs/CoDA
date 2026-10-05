@@ -64,10 +64,16 @@ export interface Task {
   file: string; // filename stored in /backend/uploads
   outputFile?: string; // server path of the auto-labeled output CSV
   inputFileName?: string; // original CSV filename from the user's disk
+  valFileName?: string; // original evaluation CSV filename
   restFile?: string;
   valFile?: string;
   evalResults?: EvalResults;
+  demoBaseline?: EvalResults; // Majority-label reference from the uploaded labeled CSV; no model inference.
   evaluationHistory?: EvaluationSnapshot[];
+  baselineStatus?: "pending" | "running" | "ready" | "failed";
+  baselineEvaluationKey?: string;
+  baselineStartedAt?: string;
+  baselineRunId?: string;
   // Codebook-development review finished (via last batch commit or Exit). Once
   // true the codebook + sample review are locked read-only.
   codebookComplete?: boolean;

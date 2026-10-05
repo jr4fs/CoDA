@@ -7,7 +7,7 @@ import {
   getLabelDistribution,
   getLabelDistributionOverTime,
 } from "./dashboardMetrics";
-import { detectDatasetColumns, normalizeDataset } from "./normalizeDataset";
+import { countMultiLabelRows, detectDatasetColumns, normalizeDataset } from "./normalizeDataset";
 
 const record = (
   id: string,
@@ -35,13 +35,13 @@ describe("normalizeDataset", () => {
     expect(normalized.timestamp?.toISOString()).toBe("2026-01-02T00:00:00.000Z");
   });
 
-  it("uses row indexes for ids and omits invalid timestamps", () => {
+  it("leaves missing IDs blank and omits invalid timestamps", () => {
     const [normalized] = normalizeDataset([{ body: "Example", date: "not-a-date" }], {
       textColumn: "body",
       timestampColumn: "date",
     });
 
-    expect(normalized).toMatchObject({ id: "0", text: "Example" });
+    expect(normalized).toMatchObject({ id: "", text: "Example" });
     expect(normalized.timestamp).toBeUndefined();
   });
 
@@ -55,6 +55,12 @@ describe("normalizeDataset", () => {
       idColumn: "Youth ID",
       timestampColumn: "Date",
     });
+  });
+
+  it("recognizes the evaluation upload's taskLabel fallback and flags multi-label rows", () => {
+    const rows = [{ text: "A", taskLabel: "positive, negative" }, { text: "B", taskLabel: "neutral" }];
+    expect(detectDatasetColumns(rows)?.labelColumn).toBe("taskLabel");
+    expect(countMultiLabelRows(rows, "taskLabel")).toBe(1);
   });
 
   it("trims mapped values, preserves raw data, and keeps missing configured IDs blank", () => {

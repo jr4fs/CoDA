@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import type { AnnotationItem } from "@common/types/annotations";
@@ -173,9 +174,10 @@ export default function DashboardPage() {
       } else {
         toast.error(result.message || "Evaluation failed");
       }
-    } catch {
+    } catch (error) {
       clearInterval(pollInterval);
-      toast.error("Evaluation failed");
+      const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      toast.error(typeof message === "string" ? message : "Final evaluation could not finish. No results were saved.");
     } finally {
       setIsRunning(false);
     }
