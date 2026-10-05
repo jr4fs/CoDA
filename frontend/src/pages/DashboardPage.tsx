@@ -18,6 +18,7 @@ import {
 import { toast } from "@/lib/toast";
 import { getTaskAnnotations } from "@/services/annotations.service";
 import {
+  downloadMetricsFile,
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
@@ -183,6 +184,22 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDownloadPredictions = async (filename: string) => {
+    try {
+      const blob = await downloadMetricsFile(filename);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Prediction results could not be downloaded.");
+    }
+  };
+
   if (loading) {
     return (
       <main className="dashboard-shell grid place-items-center px-6 py-12">
@@ -305,7 +322,7 @@ export default function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="model-performance">
-            <ModelPerformance task={task} annotations={annotations} />
+              <ModelPerformance task={task} annotations={annotations} onDownloadPredictions={handleDownloadPredictions} />
           </TabsContent>
 
           <TabsContent value="data-analysis">

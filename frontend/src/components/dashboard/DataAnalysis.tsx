@@ -22,7 +22,10 @@ type SortOption = "latest" | "oldest" | "notes" | "id";
 type ChartMode = "proportion" | "count";
 
 const CARD = "rounded-[14px] border border-[#f3f4f6] bg-white p-[25px] shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_-1px_rgba(0,0,0,0.1)]";
-const COLORS = ["var(--chart-accepted)", "var(--chart-final)", "var(--chart-baseline)"];
+const COLORS = [
+  "var(--chart-accepted)", "var(--chart-final)", "var(--chart-baseline)",
+  "#8b5cf6", "#e76f51", "#0891b2", "#ca8a04", "#db2777",
+];
 const LABEL_COLORS: Record<string, string> = {
   "health referral": "var(--chart-accepted)",
   "health discussion": "var(--chart-final)",
@@ -57,10 +60,10 @@ export default function DataAnalysis({ task }: { task: Task }) {
 function AnalysisView({ task, rows }: { task: Task; rows: Record<string, string>[] }) {
   const detected = useMemo(() => detectDatasetColumns(rows), [rows]);
   const labels = useMemo<AnalysisLabel[]>(
-    () => task.labels.slice(0, 3).map((label, index) => ({
+    () => task.labels.map((label, index) => ({
       key: label.name.trim(),
       label: displayLabel(label.name),
-      color: LABEL_COLORS[canonical(label.name)] ?? COLORS[index] ?? "var(--chart-axis)",
+      color: LABEL_COLORS[canonical(label.name)] ?? COLORS[index % COLORS.length],
     })),
     [task.labels],
   );

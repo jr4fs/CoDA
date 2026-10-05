@@ -1,7 +1,7 @@
 import type { AnnotationItem } from "@common/types/annotations";
 import type { EvalResults, Task } from "@common/types/tasks";
-import { Info } from "lucide-react";
-import { useMemo, type ReactNode } from "react";
+import { Download, Info } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Area,
   AreaChart,
@@ -33,6 +33,7 @@ import {
 export interface ModelPerformanceProps {
   task: Task;
   annotations: AnnotationItem[];
+  onDownloadPredictions?: (filename: string) => Promise<void>;
 }
 
 const CARD_STYLES =
@@ -55,6 +56,7 @@ const labelChartConfig = {
 export default function ModelPerformance({
   task,
   annotations,
+  onDownloadPredictions,
 }: ModelPerformanceProps) {
   const realBaseline = getCompatibleBaseline(task)?.results;
   const demoBaseline = realBaseline ? undefined : task.demoBaseline;
@@ -89,6 +91,7 @@ export default function ModelPerformance({
       <div className="grid items-stretch gap-4 xl:grid-cols-10">
         <FinalEvaluationCard
           evalResults={task.evalResults}
+          onDownloadPredictions={onDownloadPredictions}
           className="xl:col-span-3"
         />
         <PredictionErrorsCard
@@ -394,11 +397,14 @@ function MetricBreakdownCard({
 
 function FinalEvaluationCard({
   evalResults,
+  onDownloadPredictions,
   className,
 }: {
   evalResults?: EvalResults;
+  onDownloadPredictions?: (filename: string) => Promise<void>;
   className?: string;
 }) {
+  const [isDownloading, setIsDownloading] = useState(false);
   const fullyCorrect =
     evalResults && getWrongPredictionCount(evalResults) !== null
       ? Math.max(
@@ -406,6 +412,16 @@ function FinalEvaluationCard({
           evalResults.numSamples - (getWrongPredictionCount(evalResults) ?? 0),
         )
       : null;
+
+  const handleDownload = async () => {
+    if (!evalResults?.predictionsFilename || !onDownloadPredictions) return;
+    setIsDownloading(true);
+    try {
+      await onDownloadPredictions(evalResults.predictionsFilename);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <DashboardCard className={`min-h-[315px] ${className ?? ""}`}>
@@ -438,6 +454,17 @@ function FinalEvaluationCard({
               value={fullyCorrect === null ? "—" : fullyCorrect.toLocaleString()}
             />
           </dl>
+          {evalResults.predictionsFilename && (
+            <button
+              type="button"
+              disabled={isDownloading || !onDownloadPredictions}
+              className="inline-flex min-h-8 items-center justify-center gap-1.5 self-center rounded-md px-2 text-xs font-medium text-[#396bc6] hover:bg-[#f3f6fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void handleDownload()}
+            >
+              <Download className="size-3.5" aria-hidden="true" />
+              {isDownloading ? "Downloading…" : "Download predictions"}
+            </button>
+          )}
         </div>
       ) : (
         <EmptyState>Run final evaluation to see these metrics.</EmptyState>

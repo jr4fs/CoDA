@@ -61,6 +61,7 @@ describe("ModelPerformance", () => {
     expect(html).toContain("Final held-out F1");
     expect(html).toContain("F1 Score");
     expect(html).toContain("Fully correct samples");
+    expect(html).toContain("Download predictions");
     expect(html).toContain("27");
     expect(html).toContain("text-[#33996b]");
     expect(html).toContain("Prediction Errors");
