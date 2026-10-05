@@ -89,7 +89,6 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("latest");
   const [filter, setFilter] = useState("all");
-  const [visibleCount, setVisibleCount] = useState(50);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const overview = useMemo(() => getDatasetOverview(records), [records]);
   const distribution = useMemo(() => getLabelDistribution(records), [records]);
@@ -109,9 +108,8 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
       })
       .sort((a, b) => compare(a, b, sort));
   }, [filter, listedIds, overallShare, search, sort]);
-  const page = visible.slice(0, visibleCount);
-  const selectedIndex = page.findIndex((item) => item.id === selectedId);
-  const selected = selectedIndex < 0 ? null : page[selectedIndex];
+  const selectedIndex = visible.findIndex((item) => item.id === selectedId);
+  const selected = selectedIndex < 0 ? null : visible[selectedIndex];
   const missingIds = records.filter((record) => !record.id.trim()).length;
   const labeled = records.filter((record) => record.label).length;
   const timeRepresented = records.filter((record) => record.label && record.timestamp).length;
@@ -177,12 +175,12 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
         <label className="relative block">
           <span className="sr-only">Search by ID</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => { setSearch(event.target.value); setVisibleCount(50); }} />
+          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => setSearch(event.target.value)} />
         </label>
         <label className="relative">
           <span className="sr-only">Sort records</span>
           <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => { setSort(event.target.value as SortOption); setVisibleCount(50); }}>
+          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => setSort(event.target.value as SortOption)}>
             <option value="latest">Sort By</option>
             <option value="oldest">Oldest activity</option>
             <option value="notes">Most notes</option>
@@ -192,21 +190,21 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
         <label className="relative">
           <span className="sr-only">Filter by label</span>
           <ListFilter className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={filter} className={selectClass + " w-full pl-8"} onChange={(event) => { setFilter(event.target.value); setVisibleCount(50); }}>
+          <select value={filter} className={selectClass + " w-full pl-8"} onChange={(event) => setFilter(event.target.value)}>
             <option value="all">Filter</option>
             {labels.map((label) => <option key={label.key} value={label.key}>More {label.label}</option>)}
           </select>
         </label>
       </div>
       <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
-        Showing {page.length.toLocaleString()} of {visible.length.toLocaleString()} matching IDs{selectedLabel ? ` with above-average ${selectedLabel.label} share (${Math.round(overallShare * 100)}% overall)` : ""}.
+        Showing {visible.length.toLocaleString()} of {listedIds.length.toLocaleString()} IDs{selectedLabel ? ` with above-average ${selectedLabel.label} share (${Math.round(overallShare * 100)}% overall)` : ""}.
       </p>
       {missingIds > 0 && <p className="mt-3 text-xs text-muted-foreground">{missingIds.toLocaleString()} entries without an ID remain in evaluation totals but not the record list.</p>}
       <div className="mt-5 overflow-x-auto">
         <table className="w-full min-w-[820px] table-fixed text-left text-xs">
           <caption className="sr-only">Per-ID label distribution and recent activity</caption>
           <colgroup>
-            <col className="w-[10%]" />
+            <col className="w-[14%]" />
             <col />
             <col className="w-[9%]" />
             <col className="w-[15%]" />
@@ -222,9 +220,9 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
             </tr>
           </thead>
           <tbody>
-            {page.length ? page.map((summary) => (
+            {visible.length ? visible.map((summary) => (
               <tr key={summary.id} className="h-12 align-middle">
-                <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{summary.id}</td>
+                <td className="overflow-hidden pr-6 font-regular tabular-nums whitespace-nowrap text-[hsl(0,0%,40%)]">{formatRecordId(summary.id)}</td>
                 <td className="pr-8"><DistributionBar summary={summary} labels={labels} /></td>
                 <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{summary.activityCount.toLocaleString()}</td>
                 <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{formatDate(summary.lastActivity)}</td>
@@ -240,17 +238,14 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
           </tbody>
         </table>
       </div>
-      {page.length < visible.length && <button type="button" className="mt-4 rounded-md border border-border px-4 py-2 text-xs text-primary hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setVisibleCount((count) => count + 50)}>
-        Load 50 more IDs
-      </button>}
     </section>}
       <RecordAnalyticsDialog
         open={Boolean(selected)}
         summary={selected}
         records={selectedId ? records.filter((record) => record.id === selectedId) : []}
         labels={labels}
-        previousId={selectedIndex > 0 ? page[selectedIndex - 1]?.id : undefined}
-        nextId={page[selectedIndex + 1]?.id}
+        previousId={selectedIndex > 0 ? visible[selectedIndex - 1]?.id : undefined}
+        nextId={visible[selectedIndex + 1]?.id}
         onSelectId={setSelectedId}
         onOpenChange={(open) => !open && setSelectedId(null)}
       />
@@ -474,6 +469,7 @@ function compare(a: IdSummary, b: IdSummary, sort: SortOption) {
   if (sort === "notes") return b.activityCount - a.activityCount;
   return a.id.localeCompare(b.id, undefined, { numeric: true });
 }
+function formatRecordId(id: string) { return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id; }
 function canonical(value: string) { return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " "); }
 function displayLabel(value: string) { return canonical(value).replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function formatDate(date?: Date) {

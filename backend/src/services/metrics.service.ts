@@ -20,6 +20,7 @@ const ANNOTATION_COLLECTION =
   process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails";
 
 const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
+const METRICS_FILENAME_PATTERN = /^(?:val_eval_predictions|sample_metrics|metadata_metrics|batch_metrics|val_eval)_(.+)_\d{4}-\d{2}-\d{2}T\d{9}Z\.csv$/;
 
 /**
  * Fetch the system prompt templates from pybackend (the single source of truth)
@@ -1077,13 +1078,26 @@ export async function downloadMetricsFile(req: AuthRequest, res: Response) {
 
   try {
     const safeName = path.basename(filename);
+    const taskId = METRICS_FILENAME_PATTERN.exec(safeName)?.[1];
+    if (!taskId || safeName !== filename) {
+      return res.status(404).json({ success: false, message: "Metrics file not found" });
+    }
+
+    const taskQueryId = ObjectId.isValid(taskId) ? new ObjectId(taskId) : taskId;
+    const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+      .findOne({ _id: taskQueryId as any, userID: userId });
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Metrics file not found" });
+    }
+
     const filePath = path.join(METRICS_DIR, safeName);
+    await fsAsync.access(filePath);
     return res.download(filePath, safeName);
   } catch (error: any) {
     console.error("Error downloading metrics file:", error);
-    return res.status(500).json({
+    return res.status(error?.code === "ENOENT" ? 404 : 500).json({
       success: false,
-      message: error.message || "Failed to download metrics file",
+      message: error?.code === "ENOENT" ? "Metrics file not found" : error.message || "Failed to download metrics file",
     });
   }
 }
