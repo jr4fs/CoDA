@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
+import { Badge, Box, Button, Center, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal";
 import PageIntro from "../../components/common/PageIntro";
@@ -75,6 +75,22 @@ export default function AnnotationPage() {
         message={controller.samplingErrorMsg || "Sampling failed for this task."}
         onGoHome={controller.goHome}
       />
+    );
+  }
+
+  if (controller.task && (controller.baselineState === "idle" || controller.baselineState === "running")) {
+    return <LoadingStatus isLight={isLight} message="Evaluating the initial codebook before review…" progress={controller.baselineProgress} />;
+  }
+
+  if (controller.task && controller.baselineState === "failed") {
+    return (
+      <Center h="100vh" bg="var(--app-bg)">
+        <Stack align="center" gap="md">
+          <Text c={isLight ? "#0f1418" : "white"} ta="center">The initial evaluation did not finish. Review has not started, so you can retry safely.</Text>
+          <Button onClick={() => void controller.retryBaseline()}>Retry initial evaluation</Button>
+          <Button variant="subtle" onClick={controller.goHome}>Go Home</Button>
+        </Stack>
+      </Center>
     );
   }
 

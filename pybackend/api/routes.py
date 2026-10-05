@@ -244,7 +244,8 @@ async def run_val_eval(request: ValEvalRequest):
     """
     Run inference on all val-dataset samples using the final codebook and return
     per-sample predictions alongside ground-truth labels for metric computation.
-    Uses a semaphore to limit concurrent Ollama requests (matches OLLAMA_NUM_PARALLEL).
+    Evaluates one sample at a time so a model failure stops the run without
+    saving incomplete or misleading metrics.
     A run_id guards against concurrent evals for the same task: if a newer request
     arrives (or an explicit cancel is issued), in-flight samples finish but waiting
     samples are skipped and the response returns 409.
@@ -261,49 +262,43 @@ async def run_val_eval(request: ValEvalRequest):
         total = len(request.samples)
         _eval_progress[task_key] = {"completed": 0, "total": total, "done": False}
 
-        semaphore = asyncio.Semaphore(VAL_EVAL_CONCURRENCY)
-
         def is_active():
             return _eval_run_ids.get(task_key) == run_id
 
-        async def infer_sample(sample):
-            # Skip immediately if superseded before reaching the semaphore.
+        results = []
+        for sample in request.samples:
             if not is_active():
-                _eval_progress[task_key]["completed"] += 1
-                return ValEvalSampleResult(predicted=[], ground_truth=sample.ground_truth)
-            async with semaphore:
-                # Re-check after acquiring the semaphore.
-                if not is_active():
-                    _eval_progress[task_key]["completed"] += 1
-                    return ValEvalSampleResult(predicted=[], ground_truth=sample.ground_truth)
-                try:
-                    response = await asyncio.to_thread(
-                        chat_service_obj.send_chat,
-                        request.labels,
-                        request.task_definition,
-                        request.model_name,
-                        system_prompt,
-                        sample.text,
-                        request.user_input,
-                    )
-                    predicted = response["label"]
-                except Exception as e:
-                    print(f"[Val Eval] Sample inference failed, recording as no-prediction: {e}")
-                    predicted = []
+                raise HTTPException(status_code=409, detail="Evaluation was cancelled or superseded")
+            try:
+                response = await asyncio.to_thread(
+                    chat_service_obj.send_chat,
+                    request.labels,
+                    request.task_definition,
+                    request.model_name,
+                    system_prompt,
+                    sample.text,
+                    request.user_input,
+                )
+                predicted = response["label"]
+            except Exception as e:
+                print(f"[Val Eval] Model inference failed at sample {len(results) + 1}/{total}: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Model inference stopped at sample {len(results) + 1} of {total}. No evaluation was saved; check the model service logs before retrying.",
+                ) from e
+            results.append(ValEvalSampleResult(predicted=predicted, ground_truth=sample.ground_truth))
             _eval_progress[task_key]["completed"] += 1
-            return ValEvalSampleResult(predicted=predicted, ground_truth=sample.ground_truth)
-
-        results = await asyncio.gather(*[infer_sample(s) for s in request.samples])
-
-        if not is_active():
-            raise HTTPException(status_code=409, detail="Evaluation was cancelled or superseded")
 
         _eval_progress[task_key]["done"] = True
-        return ValEvalResponse(results=list(results))
+        return ValEvalResponse(results=results)
 
     except HTTPException:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
         raise
     except Exception as e:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
         print("[Val Eval] Error while running val evaluation: ", e)
         raise HTTPException(status_code=500, detail=str(e))
 

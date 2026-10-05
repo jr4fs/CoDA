@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import type { AnnotationItem } from "@common/types/annotations";
@@ -7,6 +8,7 @@ import type { Task } from "@common/types/tasks";
 import SessionDetails from "@/components/dashboard/SessionDetails";
 import TaskSummaryCard from "@/components/dashboard/TaskSummaryCard";
 import ModelPerformance from "@/components/dashboard/ModelPerformance";
+import DataAnalysis from "@/components/dashboard/DataAnalysis";
 import {
   Tabs,
   TabsContent,
@@ -16,6 +18,7 @@ import {
 import { toast } from "@/lib/toast";
 import { getTaskAnnotations } from "@/services/annotations.service";
 import {
+  downloadMetricsFile,
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
@@ -172,11 +175,28 @@ export default function DashboardPage() {
       } else {
         toast.error(result.message || "Evaluation failed");
       }
-    } catch {
+    } catch (error) {
       clearInterval(pollInterval);
-      toast.error("Evaluation failed");
+      const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+      toast.error(typeof message === "string" ? message : "Final evaluation could not finish. No results were saved.");
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleDownloadPredictions = async (filename: string) => {
+    try {
+      const blob = await downloadMetricsFile(filename);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Prediction results could not be downloaded.");
     }
   };
 
@@ -302,11 +322,11 @@ export default function DashboardPage() {
           </TabsContent>
 
           <TabsContent value="model-performance">
-            <ModelPerformance task={task} annotations={annotations} />
+              <ModelPerformance task={task} annotations={annotations} onDownloadPredictions={handleDownloadPredictions} />
           </TabsContent>
 
           <TabsContent value="data-analysis">
-            <DashboardPlaceholder>Data analysis coming next.</DashboardPlaceholder>
+            <DataAnalysis task={task} />
           </TabsContent>
         </Tabs>
       </div>
@@ -329,8 +349,4 @@ function DashboardTabTrigger({
       {children}
     </TabsTrigger>
   );
-}
-
-function DashboardPlaceholder({ children }: { children: string }) {
-  return <p className="py-3 text-xs text-muted-foreground">{children}</p>;
 }

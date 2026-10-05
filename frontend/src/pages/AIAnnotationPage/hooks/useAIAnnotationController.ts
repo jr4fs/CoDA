@@ -1,4 +1,5 @@
 import { RuleSynthesisItem, RuleSynthesisRequest } from "@common/types/ruleSynthesis";
+import type { Task } from "@common/types/tasks";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAITaskData } from "../../../hooks/useAITaskData";
@@ -20,6 +21,7 @@ import {
   saveFinalInferenceResult,
   saveTaskCodebook,
   startFinalInference,
+  getTaskById,
   uploadOutputFile,
 } from "../../../services/tasks.service";
 import { downloadContent } from "../../../utils/downloadContent";
@@ -30,6 +32,8 @@ import { useAnnotationReviewFlow } from "./useAnnotationReviewFlow";
 import { useCodebookManager } from "./useCodebookManager";
 import { useIntroState } from "./useIntroState";
 import { useSamplingStatus } from "./useSamplingStatus";
+
+const RUN_MODEL_BASELINE_ON_ENTRY = false; // Re-enable when initial-codebook inference is wanted.
 
 // Macro-averaged F1 over (predicted, ground-truth) label-set pairs — the simple
 // mean of per-label F1, matching the backend's val-eval macroF1.
@@ -69,6 +73,15 @@ export const useAIAnnotationController = () => {
   });
 
   const codebookState = useCodebookManager({ task });
+  const hasPriorReview = Boolean(task?.codebookComplete || guideAnnotations.some(
+    (annotation) => typeof annotation.aiAnnotation?.isCorrect === "boolean",
+  ));
+  const [baselineStatus, setBaselineStatus] = useState<{
+    taskId: string;
+    state: "idle" | "running" | "ready" | "failed" | "legacy";
+  }>({ taskId: "", state: "idle" });
+  const baselineState = baselineStatus.taskId === task?._id ? baselineStatus.state : "idle";
+  const [baselineProgress, setBaselineProgress] = useState({ completed: 0, total: 0 });
 
   const reviewState = useAnnotationReviewFlow({
     task,
@@ -76,6 +89,7 @@ export const useAIAnnotationController = () => {
     codebook: codebookState.codebook,
     getCodebookSnapshot: codebookState.getCodebookSnapshot,
     setLastPromptUsed: codebookState.setLastPromptUsed,
+    reviewEnabled: hasPriorReview || baselineState === "ready",
   });
 
   const [metricsModalOpen, setMetricsModalOpen] = useState(false);
@@ -113,37 +127,60 @@ export const useAIAnnotationController = () => {
     [],
   );
 
-  // Capture the initial codebook on entry to AI review. This covers both the
-  // manual-seed flow and tasks that proceed directly from upload. The backend
-  // keeps the operation idempotent and refuses to create a baseline after a
-  // human review has been completed.
-  useEffect(() => {
-    if (!task?._id || task.codebookComplete) return;
-    if (baselineRequestedForTaskRef.current === task._id) return;
-    if (
-      task.evaluationHistory?.some(
-        (snapshot) => snapshot.stage === "baseline",
-      )
-    ) {
-      return;
-    }
-    if (
-      guideAnnotations.some(
-        (annotation) => typeof annotation.aiAnnotation?.isCorrect === "boolean",
-      )
-    ) {
-      return;
-    }
-
+  const startBaselineEvaluation = async () => {
+    if (!task?._id) return;
+    setBaselineProgress({ completed: 0, total: 0 });
+    setBaselineStatus({ taskId: task._id, state: "running" });
     baselineRequestedForTaskRef.current = task._id;
-    void runValEvaluation(
-      task._id,
-      task.codebook ?? [],
-      "baseline",
-    ).catch((error) => {
-      console.error("Failed to initialize baseline evaluation:", error);
-    });
-  }, [guideAnnotations, task]);
+    try {
+      const result = await runValEvaluation(task._id, task.codebook ?? [], "baseline");
+      if (!result.success) throw new Error(result.message || "Baseline evaluation failed");
+      if (result.inProgress) {
+        for (let attempt = 0; attempt < 1300; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const latest = (await getTaskById(task._id)) as { task?: Task };
+          if (latest.task?.baselineStatus === "failed") throw new Error("Baseline evaluation failed");
+          if (latest.task?.evaluationHistory?.some((snapshot) =>
+            snapshot.stage === "baseline" && snapshot.evaluationKey === result.evaluationKey
+          )) break;
+          if (attempt === 1299) throw new Error("Baseline evaluation timed out");
+        }
+      }
+      setBaselineStatus({ taskId: task._id, state: "ready" });
+      await refreshTaskData();
+    } catch {
+      setBaselineStatus({ taskId: task._id, state: "failed" });
+      baselineRequestedForTaskRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!task?._id || loading) return;
+    if (hasPriorReview) { setBaselineStatus({ taskId: task._id, state: "legacy" }); return; }
+    if (task.status === "sampling_pending" || task.status === "sampling_error") return;
+    if (!RUN_MODEL_BASELINE_ON_ENTRY) {
+      if (baselineState !== "ready") setBaselineStatus({ taskId: task._id, state: "ready" });
+      return;
+    }
+    if (baselineRequestedForTaskRef.current === task._id) return;
+    void startBaselineEvaluation();
+  }, [hasPriorReview, loading, task, baselineState]);
+
+  useEffect(() => {
+    if (!task?._id || baselineState !== "running") return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const progress = await getValEvalProgress(task._id!);
+        if (active) setBaselineProgress({ completed: progress.completed, total: progress.total });
+      } catch {
+        // Keep the indeterminate loading state if progress is temporarily unavailable.
+      }
+    };
+    void poll();
+    const interval = setInterval(() => void poll(), 1500);
+    return () => { active = false; clearInterval(interval); };
+  }, [task?._id, baselineState]);
 
   // Rehydrate persisted state once per task load: completion (locks the UI),
   // held-out validation metrics, and any saved final-inference output.
@@ -331,9 +368,6 @@ export const useAIAnnotationController = () => {
     }
     window.dispatchEvent(new Event("tasks:updated"));
 
-    // Compute final metrics on the held-out validation set (d_val) with the
-    // final codebook, shown in the completion popup.
-    void runValEval("final");
   };
 
   const handleNextOrCommit = async () => {
@@ -415,7 +449,7 @@ export const useAIAnnotationController = () => {
       const file = new File([rowsToCsv(rows)], `labeled_d_all_${taskId}.csv`, {
         type: "text/csv",
       });
-      const upload = await uploadOutputFile(file);
+      const upload = await uploadOutputFile(file, taskId);
       if (upload.success && upload.filePath) {
         await saveFinalInferenceResult(taskId, upload.filePath);
         setFinalInferenceFile(upload.filePath);
@@ -588,6 +622,9 @@ export const useAIAnnotationController = () => {
     loading,
     task,
     isReady,
+    baselineState,
+    baselineProgress,
+    retryBaseline: startBaselineEvaluation,
     effectiveStatus: samplingState.effectiveStatus,
     samplingErrorMsg: samplingState.samplingErrorMsg,
     samplingQueuePosition: samplingState.queuePosition,

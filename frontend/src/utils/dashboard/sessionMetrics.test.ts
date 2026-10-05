@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AIAssisted, AnnotationItem } from "@common/types/annotations";
 
-import { getSessionSummary, getUserFeedbackSummary } from "./sessionMetrics";
+import { getManualTimeEstimate, getSessionSummary, getUserFeedbackSummary } from "./sessionMetrics";
 
 const guideAnnotation = (
   sampleId: number,
@@ -32,6 +32,13 @@ const guideAnnotation = (
 });
 
 describe("session metrics", () => {
+  it("uses the demo's 593-example, three-minute manual benchmark", () => {
+    expect(getManualTimeEstimate(0).savedMs).toBeNull();
+    expect(getManualTimeEstimate(15 * 60_000)).toEqual({
+      manualEstimateMs: 593 * 3 * 60_000,
+      savedMs: (593 * 3 - 15) * 60_000,
+    });
+  });
   it("returns zeroed summaries for an empty session", () => {
     expect(getSessionSummary([])).toEqual({
       samplesReviewed: 0,

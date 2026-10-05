@@ -26,6 +26,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import zlib from "zlib";
 import { AnnotationItem } from "@common/types/annotations";
+import { createDemoBaseline } from "../utils/demoBaseline";
 dotenv.config();
 
 interface TaskValidation {
@@ -575,10 +576,21 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
       });
     }
 
+    let demoBaseline = task.demoBaseline;
+    if (!demoBaseline && task.valFile) {
+      try {
+        const rows = parseCsvBuffer(await fs.readFile(getValDatasetPath(path.basename(task.valFile))));
+        demoBaseline = createDemoBaseline(rows, task.columns?.[0] ?? "text", task.labelColumn, task.labels.map((label) => label.name));
+      } catch {
+        // Older tasks without an accessible evaluation CSV remain partial.
+      }
+    }
+
     return res.status(200).json({
       success: true,
       task: {
         ...task,
+        demoBaseline,
         status: task.status ?? "ready",
       },
     });
@@ -587,6 +599,50 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
     return res.status(500).json({
       success: false,
       error: error.message || "Failed to retrieve task",
+    });
+  }
+}
+
+// Summarize the uploaded labeled evaluation set; full-dataset inference is not required.
+export async function getDataAnalysisData(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  const { taskId } = req.params;
+
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (!ObjectId.isValid(taskId)) {
+    return res.status(400).json({ success: false, message: "Invalid task ID" });
+  }
+
+  try {
+    const taskCollection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await taskCollection.findOne({ _id: new ObjectId(taskId) as any, userID });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+
+    const fileReference = task.valFile;
+    if (!fileReference) {
+      return res.status(200).json({ success: true, status: "pending", rows: [], headers: [] });
+    }
+    const safeName = path.basename(fileReference);
+    const filePath = getValDatasetPath(safeName);
+    const csvText = await fs.readFile(filePath, "utf-8");
+    const parsed = Papa.parse<Record<string, string>>(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+    });
+    if (parsed.errors.length > 0) console.warn("Data analysis CSV parsing warnings:", parsed.errors);
+
+    return res.status(200).json({
+      success: true,
+      status: "ready",
+      rows: Array.isArray(parsed.data) ? parsed.data : [],
+      headers: parsed.meta.fields ?? [],
+    });
+  } catch (error: any) {
+    console.error("Error retrieving data analysis dataset:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve data analysis dataset",
     });
   }
 }
@@ -697,12 +753,17 @@ export async function saveFinalInferenceResult(req: AuthRequest, res: Response) 
   if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
   if (!taskId) return res.status(400).json({ success: false, message: "taskId is required" });
   if (!outputFile) return res.status(400).json({ success: false, message: "outputFile is required" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
+  const safeOutputFile = path.basename(outputFile);
+  if (!safeOutputFile.startsWith(annotationOutputPrefix(userID, taskId))) {
+    return res.status(400).json({ success: false, message: "Output file does not belong to this task" });
+  }
 
   try {
     const collection = getCollection<Task>(TASKS_COLLECTION);
     const result = await collection.updateOne(
       { _id: new ObjectId(taskId) as any, userID },
-      { $set: { finalInferenceFile: outputFile, updatedAt: new Date().toISOString() } },
+      { $set: { finalInferenceFile: safeOutputFile, updatedAt: new Date().toISOString() } },
     );
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Task not found" });
@@ -972,36 +1033,23 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     console.log("[uploadTaskBundle] Validating columns...");
     const valColumns = getColumnsFromRows(valRows);
 
-    if (textColumn) {
-      const hasValText = valColumns.includes(textColumn);
-      const hasValLabel =
-        valColumns.includes(labelColumn) || valColumns.includes("taskLabel");
-      const hasRestText = restColumns.includes(textColumn);
-
-      if (!hasValText || !hasValLabel) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for val data:",
-          valColumns,
-          hasValText,
-          hasValLabel,
-        );
-        return res.status(400).json({
-          success: false,
-          message:
-            "The labeled dataset must include text and task_label columns.",
-        });
-      }
-
-      if (!hasRestText) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for rest data:",
-          restColumns,
-        );
-        return res.status(400).json({
-          success: false,
-          message: "The unlabeled dataset must include a text column.",
-        });
-      }
+    if (textColumn && !valColumns.includes(textColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
+    }
+    if (!valColumns.includes(labelColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${labelColumn}" label column. Enter its exact header under Label column name.`,
+      });
+    }
+    if (textColumn && !restColumns.includes(textColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
     }
 
     // Ensure Directories and Write Files
@@ -1032,11 +1080,14 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       file: uploadFilename,
       restFile: uploadFilename,
       valFile: valFilename,
+      valFileName: dValFile.originalname,
+      inputFileName: dAllFile.originalname,
       columns: textColumn ? [textColumn] : ["text"],
       userID: userID,
       labelColumn: labelColumn,
       modelName: modelName ?? "",
       status: "sampling_pending",
+      demoBaseline: createDemoBaseline(valRows, textColumn ?? "text", labelColumn, labels.map((label) => label.name)),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1351,6 +1402,17 @@ export async function downloadAnnotationOutput(req: AuthRequest, res: Response) 
 
   try {
     const safeName = path.basename(filename);
+    const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const storedPathPattern = new RegExp(`(?:^|[\\\\/])${escapedName}$`);
+    const taskCollection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await taskCollection.findOne({
+      userID: userId,
+      $or: [
+        { finalInferenceFile: storedPathPattern },
+        { outputFile: storedPathPattern },
+      ],
+    });
+    if (!task) return res.status(404).json({ success: false, message: "Output file not found" });
     const filePath = getAnnotationOutputPath(safeName);
     return res.download(filePath, safeName);
   } catch (error: any) {
@@ -1367,10 +1429,18 @@ export async function uploadAnnotationOutput(req: AuthRequest, res: Response) {
   if (!req.file) {
     return res.status(400).json({ success: false, message: "No file provided" });
   }
+  const taskId = String(req.body.taskId ?? "");
+  if (!ObjectId.isValid(taskId)) {
+    return res.status(400).json({ success: false, message: "Valid taskId is required" });
+  }
 
   try {
+    const taskCollection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await taskCollection.findOne({ _id: new ObjectId(taskId) as any, userID: userId });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+
     ensureAnnotationOutputsDir();
-    const filename = generateUploadFilename(req.file.originalname);
+    const filename = `${annotationOutputPrefix(userId, taskId)}${generateUploadFilename(req.file.originalname)}`;
     const outputPath = getAnnotationOutputPath(filename);
     await fs.writeFile(outputPath, req.file.buffer);
     return res.status(200).json({ success: true, filePath: filename });
@@ -1388,6 +1458,10 @@ export async function createAutoLabelTask(req: AuthRequest, res: Response) {
 
   try {
     const body = req.body as CreateAutoLabelTaskRequest;
+    const safeOutputFile = path.basename(body.outputFile);
+    if (!safeOutputFile.startsWith(annotationOutputOwnerPrefix(userID))) {
+      return res.status(400).json({ success: false, message: "Output file does not belong to this user" });
+    }
     const taskData: Omit<Task, "_id"> = {
       name: body.name,
       description: body.description,
@@ -1396,7 +1470,7 @@ export async function createAutoLabelTask(req: AuthRequest, res: Response) {
       codebook: body.codebook,
       columns: body.columns,
       file: body.file,
-      outputFile: body.outputFile,
+      outputFile: safeOutputFile,
       inputFileName: body.inputFileName,
       modelName: body.modelName,
       labelColumn: body.labelColumn,
@@ -1546,15 +1620,31 @@ export async function getAutoLabelProgress(req: AuthRequest, res: Response) {
 
 export async function completeAutoLabel(req: AuthRequest, res: Response) {
   try {
+    const userID = req.user?.userId;
     const { taskId } = req.params;
     const { outputFile } = req.body as { outputFile: string };
+    if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
+    const safeOutputFile = path.basename(outputFile);
+    if (!safeOutputFile.startsWith(annotationOutputPrefix(userID, taskId))) {
+      return res.status(400).json({ success: false, message: "Output file does not belong to this task" });
+    }
     const collection = getCollection<Task>(TASKS_COLLECTION);
-    await collection.updateOne(
-      { _id: new ObjectId(taskId) as any },
-      { $set: { status: "auto_label_complete", outputFile, updatedAt: new Date().toISOString() } },
+    const result = await collection.updateOne(
+      { _id: new ObjectId(taskId) as any, userID },
+      { $set: { status: "auto_label_complete", outputFile: safeOutputFile, updatedAt: new Date().toISOString() } },
     );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Task not found" });
     return res.json({ success: true });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
+}
+
+function annotationOutputOwnerPrefix(userID: string) {
+  return `${Buffer.from(userID).toString("base64url")}-`;
+}
+
+function annotationOutputPrefix(userID: string, taskId: string) {
+  return `${annotationOutputOwnerPrefix(userID)}${taskId}-`;
 }

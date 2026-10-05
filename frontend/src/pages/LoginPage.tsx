@@ -64,8 +64,6 @@ export default function LoginPage() {
     setError("");
     try {
       const res = await loginUser(values);
-      console.log("Login success:", res);
-      // TODO: store auth token (JWT) / redirect user to landing page
       dispatch(
         setUser({
           user: res.user,
@@ -76,7 +74,6 @@ export default function LoginPage() {
       setLoading(false);
       navigate("/home");
     } catch (error) {
-      console.error("Login Error: ", error);
       if (error instanceof AxiosError) {
         const errorMessage = error?.response?.data?.message || error?.message;
 

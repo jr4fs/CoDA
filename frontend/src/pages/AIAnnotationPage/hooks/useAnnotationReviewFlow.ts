@@ -23,6 +23,7 @@ interface UseAnnotationReviewFlowArgs {
   codebook: string[];
   getCodebookSnapshot: () => string[];
   setLastPromptUsed: Dispatch<SetStateAction<string>>;
+  reviewEnabled: boolean;
 }
 
 export function useAnnotationReviewFlow({
@@ -31,6 +32,7 @@ export function useAnnotationReviewFlow({
   codebook,
   getCodebookSnapshot,
   setLastPromptUsed,
+  reviewEnabled,
 }: UseAnnotationReviewFlowArgs) {
   const [localGuideAnnotations, setLocalGuideAnnotations] = useState(guideAnnotations || []);
   const [isLoading, setIsLoading] = useState(false);
@@ -239,7 +241,7 @@ export function useAnnotationReviewFlow({
   ]);
 
   useEffect(() => {
-    if (!annotationsForReview.length || currentIndex >= annotationsForReview.length) return;
+    if (!reviewEnabled || !annotationsForReview.length || currentIndex >= annotationsForReview.length) return;
 
     if (skipInferenceRef.current) {
       skipInferenceRef.current = false;
@@ -283,7 +285,7 @@ export function useAnnotationReviewFlow({
       }
     };
     void runInference();
-  }, [annotationsForReview, currentBatchIndex, currentIndex, handleClickAnnotation, task?._id, getCodebookSnapshot]);
+  }, [annotationsForReview, currentBatchIndex, currentIndex, handleClickAnnotation, task?._id, getCodebookSnapshot, reviewEnabled]);
 
   const handleNextClick = async () => {
     try {

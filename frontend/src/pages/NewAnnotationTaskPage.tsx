@@ -298,7 +298,7 @@ export default function NewAnnotationTaskPage() {
               const csvBlob = new Blob([csvLines.join("\n")], { type: "text/csv" });
               const outputFile = new File([csvBlob], `labeled_${taskId}.csv`, { type: "text/csv" });
               try {
-                const upload = await uploadOutputFile(outputFile);
+                const upload = await uploadOutputFile(outputFile, taskId);
                 if (upload.success && upload.filePath) {
                   await completeAutoLabelTask(taskId, upload.filePath);
                   setCompletedTaskOutputFile(upload.filePath);

@@ -34,4 +34,16 @@ describe("SessionDetails", () => {
     expect(markup).toContain("Final evaluation has not been run yet.");
     expect(markup).toContain("No remaining label issues were identified");
   });
+
+  it("shows original upload names without exposing generated filenames", () => {
+    const markup = renderToStaticMarkup(<SessionDetails task={{
+      ...emptyTask,
+      valFile: "generated-eval-id.csv",
+      valFileName: "wildlife-evaluation-original.csv",
+      inputFileName: "wildlife-dataset-original.csv",
+    }} annotations={[]} evaluationTotal={0} />);
+    expect(markup).toContain("wildlife-evaluation-original.csv");
+    expect(markup).toContain("wildlife-dataset-original.csv");
+    expect(markup).not.toContain("generated-eval-id.csv");
+  });
 });
