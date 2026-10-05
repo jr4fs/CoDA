@@ -7,6 +7,7 @@ import {
   runValEvaluation,
   cancelValEvaluation,
   getValEvalProgress,
+  getModelPerformance,
   downloadMetricsFile,
 } from "../services/metrics.service";
 
@@ -20,6 +21,7 @@ router.post("/batches", generateBatchMetrics);
 router.post("/val-eval", runValEvaluation);
 router.post("/val-eval/cancel", cancelValEvaluation);
 router.get("/val-eval/progress/:taskId", getValEvalProgress);
+router.get("/model-performance/:taskId", getModelPerformance);
 router.get("/download/:filename", downloadMetricsFile);
 
 export default router;

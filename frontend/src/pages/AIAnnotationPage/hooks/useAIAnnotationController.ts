@@ -104,6 +104,7 @@ export const useAIAnnotationController = () => {
   // reload), so the labeled dataset can be re-downloaded from the server.
   const [finalInferenceFile, setFinalInferenceFile] = useState<string | null>(null);
   const finalInferencePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const baselineRequestedForTaskRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -111,6 +112,38 @@ export const useAIAnnotationController = () => {
     },
     [],
   );
+
+  // Capture the initial codebook on entry to AI review. This covers both the
+  // manual-seed flow and tasks that proceed directly from upload. The backend
+  // keeps the operation idempotent and refuses to create a baseline after a
+  // human review has been completed.
+  useEffect(() => {
+    if (!task?._id || task.codebookComplete) return;
+    if (baselineRequestedForTaskRef.current === task._id) return;
+    if (
+      task.evaluationHistory?.some(
+        (snapshot) => snapshot.stage === "baseline",
+      )
+    ) {
+      return;
+    }
+    if (
+      guideAnnotations.some(
+        (annotation) => typeof annotation.aiAnnotation?.isCorrect === "boolean",
+      )
+    ) {
+      return;
+    }
+
+    baselineRequestedForTaskRef.current = task._id;
+    void runValEvaluation(
+      task._id,
+      task.codebook ?? [],
+      "baseline",
+    ).catch((error) => {
+      console.error("Failed to initialize baseline evaluation:", error);
+    });
+  }, [guideAnnotations, task]);
 
   // Rehydrate persisted state once per task load: completion (locks the UI),
   // held-out validation metrics, and any saved final-inference output.
@@ -300,7 +333,7 @@ export const useAIAnnotationController = () => {
 
     // Compute final metrics on the held-out validation set (d_val) with the
     // final codebook, shown in the completion popup.
-    void handleRunValEval();
+    void runValEval("final");
   };
 
   const handleNextOrCommit = async () => {
@@ -471,7 +504,7 @@ export const useAIAnnotationController = () => {
     }
   };
 
-  const handleRunValEval = async () => {
+  const runValEval = async (stage: "checkpoint" | "final") => {
     if (!task?._id) return;
     setIsRunningValEval(true);
     setValEvalProgress({ completed: 0, total: 0 });
@@ -488,7 +521,11 @@ export const useAIAnnotationController = () => {
     }, 1500);
 
     try {
-      const res = await runValEvaluation(taskId, codebookState.codebook);
+      const res = await runValEvaluation(
+        taskId,
+        codebookState.codebook,
+        stage,
+      );
       clearInterval(pollInterval);
       if (res.success) {
         if (res.macroF1 != null) setPredictedAccuracy(res.macroF1);
@@ -514,6 +551,8 @@ export const useAIAnnotationController = () => {
       setIsRunningValEval(false);
     }
   };
+
+  const handleRunValEval = () => runValEval("checkpoint");
 
   const goHome = () => navigate("/");
 
