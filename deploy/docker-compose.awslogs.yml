@@ -1,0 +1,37 @@
+# AWS-only override: ship container logs to CloudWatch via the Docker awslogs
+# driver, so logs persist across redeploys (the default json-file logs are wiped
+# when `docker compose up --build` recreates containers).
+#
+# deploy.sh enables this automatically by setting COMPOSE_FILE in the server .env:
+#   COMPOSE_FILE=docker-compose.yml:deploy/docker-compose.awslogs.yml
+#
+# The EC2 instance role (Terraform) grants logs:PutLogEvents; no keys needed.
+# View logs:  aws logs tail /annotation-tool/<service> --follow
+#
+# NOTE: with awslogs, `docker compose logs` returns nothing — use `aws logs tail`.
+# Local dev does NOT include this file, so it keeps json-file + `docker compose logs`.
+
+services:
+  node:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: "${AWS_REGION:-us-east-1}"
+        awslogs-group: "/annotation-tool/node"
+        awslogs-create-group: "true"
+
+  pybackend:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: "${AWS_REGION:-us-east-1}"
+        awslogs-group: "/annotation-tool/pybackend"
+        awslogs-create-group: "true"
+
+  caddy:
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: "${AWS_REGION:-us-east-1}"
+        awslogs-group: "/annotation-tool/caddy"
+        awslogs-create-group: "true"

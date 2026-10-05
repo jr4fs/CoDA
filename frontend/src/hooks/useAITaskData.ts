@@ -26,9 +26,7 @@ export const useAITaskData = () => {
 
     setLoading(true);
     try {
-      const taskResponse = navProps?.task
-        ? { task: navProps.task }
-        : await getTaskById(effectiveTaskId);
+      const taskResponse = await getTaskById(effectiveTaskId);
       if (taskResponse.task) {
         setTask(taskResponse.task);
       }
@@ -62,4 +60,3 @@ export const useAITaskData = () => {
     refreshTaskData: fetchData,
   };
 };
-

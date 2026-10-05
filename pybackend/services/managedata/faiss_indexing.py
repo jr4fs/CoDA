@@ -1,9 +1,7 @@
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
-from sklearn.preprocessing import normalize
 import pandas as pd
-from typing import List, Tuple
+from typing import Tuple
 
 
 class FAISSIndexing:

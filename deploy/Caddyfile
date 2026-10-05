@@ -1,0 +1,39 @@
+# Caddy serves the static SPA and reverse-proxies the API to the Node backend.
+# TLS is obtained automatically from Let's Encrypt for {$DOMAIN}.
+#
+# Required env (see .env.example):
+#   DOMAIN      e.g. annotate.example.org
+#   ACME_EMAIL  contact email for the TLS certificate
+#
+# For local testing without a public domain/cert, set DOMAIN=localhost and
+# ACME_EMAIL=internal — Caddy will serve a local self-signed cert.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# API -> Node backend (same docker network).
+	handle /api/* {
+		reverse_proxy node:8080
+	}
+
+	# Backend health passthrough (optional convenience).
+	handle /health {
+		reverse_proxy node:8080
+	}
+
+	# Everything else is the SPA; fall back to index.html for client routing.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode gzip
+
+	# Allow large dataset uploads (backend caps bundles well above this).
+	request_body {
+		max_size 200MB
+	}
+}

@@ -11,6 +11,7 @@ interface CodebookPanelProps {
   stagedRules: string[];
   stagedRulesDeletion: string[];
   newRule: string;
+  readOnly?: boolean;
   onNewRuleChange: (value: string) => void;
   onAddRule: () => void;
   onExport: () => void;
@@ -29,6 +30,7 @@ export function CodebookPanel({
   stagedRules,
   stagedRulesDeletion,
   newRule,
+  readOnly,
   onNewRuleChange,
   onAddRule,
   onExport,
@@ -95,17 +97,21 @@ export function CodebookPanel({
                     >
                       {rule}
                     </Text>
-                    <ActionIcon size="sm" color="green" variant="subtle" onClick={() => onEditRule(rule)}>
-                      <IconEdit size={14} />
-                    </ActionIcon>
-                    <ActionIcon
-                      size="sm"
-                      color="red"
-                      variant="subtle"
-                      onClick={() => onToggleDeleteRule(rule)}
-                    >
-                      <IconTrash size={14} />
-                    </ActionIcon>
+                    {!readOnly && (
+                      <>
+                        <ActionIcon size="sm" color="green" variant="subtle" onClick={() => onEditRule(rule)}>
+                          <IconEdit size={14} />
+                        </ActionIcon>
+                        <ActionIcon
+                          size="sm"
+                          color="red"
+                          variant="subtle"
+                          onClick={() => onToggleDeleteRule(rule)}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </>
+                    )}
                   </Group>
                 </Paper>
               ))}
@@ -143,25 +149,29 @@ export function CodebookPanel({
           )}
         </Stack>
 
-        <Divider color={borderColor} />
-        <Stack gap="xs">
-          <Text size="sm" fw={700} c={mutedColor} tt="uppercase">
-            Add Codebook Rule
-          </Text>
-          <Group gap="xs">
-            <Textarea
-              placeholder="Enter a custom rule..."
-              variant="filled"
-              size="sm"
-              style={{ flex: 1 }}
-              value={newRule}
-              onChange={(e) => onNewRuleChange(e.currentTarget.value)}
-            />
-            <ActionIcon size="lg" color="blue" onClick={onAddRule}>
-              <IconPlus size={20} />
-            </ActionIcon>
-          </Group>
-        </Stack>
+        {!readOnly && (
+          <>
+            <Divider color={borderColor} />
+            <Stack gap="xs">
+              <Text size="sm" fw={700} c={mutedColor} tt="uppercase">
+                Add Codebook Rule
+              </Text>
+              <Group gap="xs">
+                <Textarea
+                  placeholder="Enter a custom rule..."
+                  variant="filled"
+                  size="sm"
+                  style={{ flex: 1 }}
+                  value={newRule}
+                  onChange={(e) => onNewRuleChange(e.currentTarget.value)}
+                />
+                <ActionIcon size="lg" color="blue" onClick={onAddRule}>
+                  <IconPlus size={20} />
+                </ActionIcon>
+              </Group>
+            </Stack>
+          </>
+        )}
       </div>
     </Paper>
   );

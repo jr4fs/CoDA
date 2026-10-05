@@ -3,7 +3,7 @@ import { LabelItem } from "./tasks";
 export interface InferenceRequest {
   labels: LabelItem[];
   task_definition: string;
-  case_notes: string;
+  text: string;
   model_name: string;
   user_input?: string;
   task_type: string;

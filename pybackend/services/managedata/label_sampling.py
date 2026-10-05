@@ -1,10 +1,14 @@
-from typing import List
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Optional
 import numpy as np
 import pandas as pd
 import faiss
-from sentence_transformers import SentenceTransformer
 from models.embedding_schemas import Label
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class LabelSampling:
@@ -13,12 +17,13 @@ class LabelSampling:
         df: pd.DataFrame,
         labels: List[Label],
         index: faiss.Index,
-        model: SentenceTransformer,
-        device: str
+        model: "SentenceTransformer",
+        device: Optional[str] = None,
     ):
         self.database_df = df
         self.device = device
-        self.model = model.to(self.device)
+        # Model already carries its device (local mpnet) or is an API stub.
+        self.model = model
         self.labels: List[Label] = labels
         self.index = index
 

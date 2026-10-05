@@ -11,6 +11,7 @@ metrics/
 venv
 at_slurm_job.sh
 generated_codebooks/
+annotation_outputs/
 
 # Dist
 backend/dist
@@ -22,7 +23,6 @@ AGENTS.md
 
 bin/mongod
 bin/mongosh
-data
 lib/
 
 # Deploy job artifacts and runtime junk
@@ -33,3 +33,23 @@ lib/
 ollama_models/
 bin/bin/
 bin/ngrok
+
+temp
+temp_a
+
+# Local docker-compose data dir and browser-test artifacts
+/data/
+.playwright-mcp/
+
+# Terraform
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.*
+deploy/terraform/terraform.tfvars
+deploy/terraform/*.tfplan
+deploy/terraform/*.plan
+deploy/terraform/tf.plan
+
+# Deployment secrets/config
+deploy/config.env
+deploy/.generated.env

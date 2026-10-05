@@ -26,9 +26,13 @@ MLapiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      store.dispatch(clearUser());
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+      // The public /demo runs on MSW-mocked data; never bounce it to /login.
+      const inDemo = window.location.pathname.startsWith("/demo");
+      if (!inDemo) {
+        store.dispatch(clearUser());
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);

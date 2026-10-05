@@ -17,7 +17,7 @@ export default function App() {
     <Provider store={store}>
       <MantineProvider
         colorSchemeManager={colorSchemeManager}
-        defaultColorScheme="dark"
+        defaultColorScheme="light"
       >
         <Notifications position="top-right" />
         <RouterProvider router={router} />

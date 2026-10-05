@@ -1,0 +1,5 @@
+{
+  "taskname": "Pangolin_Classification",
+  "description": "You are labeling the sentiment of pangolin-related social media posts on if it is positive, negative, or neutral towards the conservation of the species.",
+  "type": "Multiclass"
+}

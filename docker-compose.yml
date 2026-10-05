@@ -1,0 +1,111 @@
+# Single-VM deployment: static SPA + Node BFF + Python ML service, behind Caddy.
+#
+# Usage:
+#   cp .env.example .env   # then fill in secrets
+#   docker compose up -d --build
+#
+# The Node and Python containers share the SAME host data directories, mounted at
+# the path each one resolves internally (/app/<dir> in both). This reproduces the
+# single-filesystem behaviour of the original university server, so no file
+# storage code changes are needed. The host data root is ${DATA_DIR} (a persistent,
+# snapshotted disk on the VM).
+
+# Reusable data-dir mounts shared by node + pybackend (must be identical in both).
+x-data-volumes: &data-volumes
+  - ${DATA_DIR:-./data}/shared_uploads:/app/shared_uploads
+  - ${DATA_DIR:-./data}/val_datasets:/app/val_datasets
+  - ${DATA_DIR:-./data}/rest_datasets:/app/rest_datasets
+  - ${DATA_DIR:-./data}/guide_datasets:/app/guide_datasets
+  - ${DATA_DIR:-./data}/generated_codebooks:/app/generated_codebooks
+  - ${DATA_DIR:-./data}/metrics:/app/metrics
+
+services:
+  pybackend:
+    build:
+      context: .
+      dockerfile: pybackend/Dockerfile
+    restart: unless-stopped
+    environment:
+      MONGODB_URI: ${DB_CONN_STRING}
+      DB_NAME: ${DB_NAME}
+      TASKS_COLLECTION_NAME: ${TASKS_COLLECTION_NAME:-TaskDetails}
+      APP_MODE: ${APP_MODE:-DEFAULT}
+      # Max concurrent dataset-sampling jobs (memory guard). Extra uploads queue.
+      MAX_CONCURRENT_SAMPLING: ${MAX_CONCURRENT_SAMPLING:-1}
+      # Randomly subsample the candidate pool to this many rows before embedding.
+      # Empty/0 = disabled (embed everything, the default).
+      SAMPLING_CANDIDATE_CAP: ${SAMPLING_CANDIDATE_CAP:-}
+      # Embedding backend: local (default, in-process mpnet) | bedrock | openai.
+      # Set to bedrock/openai to offload embeddings and run on a smaller VM.
+      EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-local}
+      # OpenAI embeddings (only used when EMBEDDINGS_PROVIDER=openai).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      # Bedrock embeddings (only used when EMBEDDINGS_PROVIDER=bedrock). Creds come
+      # from the standard AWS chain (env vars below or the VM's instance role).
+      BEDROCK_EMBEDDING_MODEL: ${BEDROCK_EMBEDDING_MODEL:-}
+      BEDROCK_REGION: ${BEDROCK_REGION:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_MODEL_MAP: ${OPENROUTER_MODEL_MAP:-}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-Annotation Tool}
+      OPENROUTER_SITE_URL: ${OPENROUTER_SITE_URL:-}
+    volumes: *data-volumes
+    expose:
+      - "8000"
+
+  node:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - pybackend
+    environment:
+      PORT: "8080"
+      DB_CONN_STRING: ${DB_CONN_STRING}
+      DB_NAME: ${DB_NAME}
+      USER_DETAILS_COLLECTION_NAME: ${USER_DETAILS_COLLECTION_NAME:-UserDetails}
+      TASKS_COLLECTION_NAME: ${TASKS_COLLECTION_NAME:-TaskDetails}
+      ANNOTATION_COLLECTION_NAME: ${ANNOTATION_COLLECTION_NAME:-AnnotationDetails}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      ML_SERVICE_URL: http://pybackend:8000
+      PYBACKEND_URL: http://pybackend:8000
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      # Email of the single admin account (gates /api/admin + the /admin UI).
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      APP_MODE: ${APP_MODE:-DEFAULT}
+      # Default total number of samples when a request omits coverage_n.
+      DEFAULT_COVERAGE_SAMPLES: ${DEFAULT_COVERAGE_SAMPLES:-15}
+    volumes: *data-volumes
+    expose:
+      - "8080"
+
+  caddy:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_APP_MODE: ${VITE_APP_MODE:-}
+        VITE_DEFAULT_COVERAGE_SAMPLES: ${VITE_DEFAULT_COVERAGE_SAMPLES:-15}
+    restart: unless-stopped
+    depends_on:
+      - node
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

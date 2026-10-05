@@ -1,0 +1,7 @@
+# Local-only overlay: publish Node's port to the host so the frontend dev server
+# (or Playwright) can reach the containerized API directly over plain HTTP,
+# bypassing Caddy's self-signed TLS. Not for production.
+services:
+  node:
+    ports:
+      - "8080:8080"

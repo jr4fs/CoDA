@@ -11,12 +11,28 @@ from typing import List, Optional
 from pathlib import Path
 import json
 import asyncio
+import os
+import logging
+import uuid
+
+# Keyed by task_id; holds live progress for in-flight val-evals.
+_eval_progress: dict[str, dict] = {}
+# Keyed by task_id; holds the run_id of the currently active eval.
+# Changing or deleting this entry signals the running eval to abort.
+_eval_run_ids: dict[str, str] = {}
+
+# Auto-label job tracking (keyed by job_id == MongoDB taskId)
+_auto_label_progress: dict[str, dict] = {}
+_auto_label_run_ids: dict[str, str] = {}
+_auto_label_results: dict[str, list] = {}
+
+VAL_EVAL_CONCURRENCY = 1
 
 from models.embedding_schemas import EmbedDatasetRequest, EmbedDatasetResponse
 from models.rule_synthesis_schema import RuleSynthesisRequest, RuleSynthesisResponse
 #from services.embedding_service import EmbeddingService
 from services.anonymizer.service import anonymize_csv_bytes, get_config_defaults
-from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary
+from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse
 from services.chat.chat_service import ChatService
 from models.prompt_templating_model import PromptTemplate
 from services.chat.rule_synthesis_service import RuleSynthesisService
@@ -24,6 +40,18 @@ from services.chat.rule_synthesis_service import RuleSynthesisService
 embedding_router = APIRouter(prefix="/embedding", tags=["embedding"])
 chat_router = APIRouter(prefix="/inference", tags=["inference"])
 anonymize_router = APIRouter(prefix="/anonymize", tags=["anonymize"])
+
+
+@chat_router.get("/prompts")
+async def get_prompts():
+    """Expose the system prompt templates so other services (e.g. the Node
+    metrics export) can read them over HTTP instead of pybackend's filesystem.
+    pybackend remains the single source of truth for prompts."""
+    pt = PromptTemplate()
+    return {
+        "annotation_task": pt.get_task_system_prompt("annotation"),
+        "rule_synthesis": pt.get_task_system_prompt("rule_synthesis"),
+    }
 
 @anonymize_router.post("/csv")
 async def anonymize_csv(
@@ -95,18 +123,22 @@ async def run_inference(request: InferenceRequest):
         system_prompt = prompt_template_obj.get_task_system_prompt(request.task_type)
         inference_payload = {
             "labels": [l.dict() for l in request.labels],
-            "case_notes": request.case_notes,
+            "text": request.text,
             "task_definition": request.task_definition,
             "user_input": request.user_input,
         }
         user_prompt = json.dumps(inference_payload, ensure_ascii=False)
 
-        response = chat_service_obj.send_chat(
+        # send_chat is a synchronous, network-bound call (OpenRouter/Ollama).
+        # Run it off the event loop so one uvicorn worker can handle many
+        # concurrent inference requests instead of serializing on each call.
+        response = await asyncio.to_thread(
+            chat_service_obj.send_chat,
             request.labels,
             request.task_definition,
             request.model_name,
             system_prompt,
-            request.case_notes,
+            request.text,
             request.user_input,
         )
         inference_response: InferenceResponse = {
@@ -174,7 +206,7 @@ async def process_single_sample(
         sample.task_definition,
         sample.model_name,
         system_prompt,
-        sample.case_notes,
+        sample.text,
         sample.user_input,
     )
     
@@ -192,6 +224,177 @@ async def process_single_sample(
         time=response.get("time", 0.0),
     )
 
+@chat_router.get("/val-eval/progress/{task_id}")
+async def get_val_eval_progress(task_id: str):
+    """Return live progress for an in-flight val-eval keyed by task_id."""
+    entry = _eval_progress.get(task_id)
+    if not entry:
+        return {"completed": 0, "total": 0, "done": False}
+    return entry
+
+@chat_router.post("/val-eval/cancel/{task_id}")
+async def cancel_val_eval(task_id: str):
+    """Signal any in-flight val-eval for this task to abort."""
+    _eval_run_ids[task_id] = "__cancelled__"
+    return {"cancelled": True}
+
+
+@chat_router.post("/val-eval", response_model=ValEvalResponse)
+async def run_val_eval(request: ValEvalRequest):
+    """
+    Run inference on all val-dataset samples using the final codebook and return
+    per-sample predictions alongside ground-truth labels for metric computation.
+    Evaluates one sample at a time so a model failure stops the run without
+    saving incomplete or misleading metrics.
+    A run_id guards against concurrent evals for the same task: if a newer request
+    arrives (or an explicit cancel is issued), in-flight samples finish but waiting
+    samples are skipped and the response returns 409.
+    """
+    try:
+        chat_service_obj = ChatService()
+        prompt_template_obj = PromptTemplate()
+        system_prompt = prompt_template_obj.get_task_system_prompt(request.task_type) if request.samples else ""
+
+        task_key = request.task_id or str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+        _eval_run_ids[task_key] = run_id
+
+        total = len(request.samples)
+        _eval_progress[task_key] = {"completed": 0, "total": total, "done": False}
+
+        def is_active():
+            return _eval_run_ids.get(task_key) == run_id
+
+        results = []
+        for sample in request.samples:
+            if not is_active():
+                raise HTTPException(status_code=409, detail="Evaluation was cancelled or superseded")
+            try:
+                response = await asyncio.to_thread(
+                    chat_service_obj.send_chat,
+                    request.labels,
+                    request.task_definition,
+                    request.model_name,
+                    system_prompt,
+                    sample.text,
+                    request.user_input,
+                )
+                predicted = response["label"]
+            except Exception as e:
+                print(f"[Val Eval] Model inference failed at sample {len(results) + 1}/{total}: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Model inference stopped at sample {len(results) + 1} of {total}. No evaluation was saved; check the model service logs before retrying.",
+                ) from e
+            results.append(ValEvalSampleResult(predicted=predicted, ground_truth=sample.ground_truth))
+            _eval_progress[task_key]["completed"] += 1
+
+        _eval_progress[task_key]["done"] = True
+        return ValEvalResponse(results=results)
+
+    except HTTPException:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
+        raise
+    except Exception as e:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
+        print("[Val Eval] Error while running val evaluation: ", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@chat_router.get("/auto-label/progress/{job_id}")
+async def get_auto_label_progress(job_id: str):
+    """Return live progress for an in-flight auto-label job keyed by job_id (== MongoDB taskId)."""
+    entry = _auto_label_progress.get(job_id)
+    if not entry:
+        return {"completed": 0, "total": 0, "done": False}
+    result = dict(entry)
+    if result.get("done"):
+        result["rows"] = _auto_label_results.get(job_id, [])
+    return result
+
+
+@chat_router.post("/auto-label/cancel/{job_id}")
+async def cancel_auto_label(job_id: str):
+    """Signal an in-flight auto-label job to abort."""
+    _auto_label_run_ids[job_id] = "__cancelled__"
+    return {"cancelled": True}
+
+
+@chat_router.post("/auto-label")
+async def start_auto_label(request: AutoLabelRequest):
+    """
+    Start an auto-label job. Returns immediately with a job_id; the actual
+    inference runs as a detached asyncio task so it survives client disconnects.
+    Python reads the CSV from shared_uploads/ on disk — no row data in the request.
+    """
+    job_id = request.job_id or str(uuid.uuid4())
+    run_id = str(uuid.uuid4())
+    _auto_label_run_ids[job_id] = run_id
+    _auto_label_progress[job_id] = {"completed": 0, "total": 0, "done": False}
+    asyncio.create_task(_run_auto_label_job(job_id, run_id, request))
+    return {"job_id": job_id}
+
+
+async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelRequest):
+    """Background worker: reads CSV from disk, runs inference for every row via a semaphore."""
+    import pandas as pd
+
+    try:
+        project_root = Path(__file__).resolve().parents[2]
+        csv_path = project_root / "shared_uploads" / request.file_path
+
+        df = await asyncio.to_thread(pd.read_csv, csv_path, dtype=str, keep_default_na=False)
+        rows = df.to_dict(orient="records")
+        total = len(rows)
+        _auto_label_progress[job_id]["total"] = total
+
+        chat_service_obj = ChatService()
+        prompt_template_obj = PromptTemplate()
+        system_prompt = prompt_template_obj.get_task_system_prompt(request.task_type)
+        semaphore = asyncio.Semaphore(VAL_EVAL_CONCURRENCY)
+
+        def is_active():
+            return _auto_label_run_ids.get(job_id) == run_id
+
+        async def infer_one(row: dict) -> dict:
+            row_data = {k: str(v) for k, v in row.items()}
+            text = row_data.get(request.text_column, "")
+            if not is_active():
+                _auto_label_progress[job_id]["completed"] += 1
+                return {**row_data, "generated_label": ""}
+            async with semaphore:
+                if not is_active():
+                    _auto_label_progress[job_id]["completed"] += 1
+                    return {**row_data, "generated_label": ""}
+                try:
+                    response = await asyncio.to_thread(
+                        chat_service_obj.send_chat,
+                        request.labels,
+                        request.task_definition,
+                        request.model_name,
+                        system_prompt,
+                        text,
+                        request.user_input,
+                    )
+                    generated_label = "|".join(response["label"])
+                except Exception as e:
+                    print(f"[Auto Label] Sample inference failed: {e}")
+                    generated_label = "ERROR"
+                _auto_label_progress[job_id]["completed"] += 1
+                return {**row_data, "generated_label": generated_label}
+
+        results = await asyncio.gather(*[infer_one(r) for r in rows])
+        _auto_label_results[job_id] = list(results)
+        _auto_label_progress[job_id]["done"] = True
+        print(f"[Auto Label] Job {job_id} complete: {len(results)} rows labeled")
+    except Exception as e:
+        print(f"[Auto Label] Job {job_id} failed: {e}")
+        _auto_label_progress[job_id]["done"] = True
+        _auto_label_progress[job_id]["error"] = str(e)
+
+
 @chat_router.post("/rule-synthesis", response_model=RuleSynthesisResponse)
 async def run_rule_synthesis(request: RuleSynthesisRequest):
     try:
@@ -201,10 +404,12 @@ async def run_rule_synthesis(request: RuleSynthesisRequest):
         rule_synthesis_service_obj = RuleSynthesisService()
         prompt_template_obj = PromptTemplate()
         system_prompt = prompt_template_obj.get_task_system_prompt(request.task_type)
-        response = rule_synthesis_service_obj.send_chat(
+        # Off-load the blocking LLM call so it doesn't stall the event loop.
+        response = await asyncio.to_thread(
+            rule_synthesis_service_obj.send_chat,
             request.model_name,
             system_prompt,
-            request.payload
+            request.payload,
         )
         rule_synthesis_response: RuleSynthesisResponse = {
             "success": response["success"],
@@ -217,17 +422,46 @@ async def run_rule_synthesis(request: RuleSynthesisRequest):
         print("[Rule synthesis] Error while running rule synthesis : ", e)
         raise HTTPException(status_code=500, detail=str(e))
 from services.managedata.data_manager_service import DataManagerService
+from services.managedata.sampling_queue import sampling_queue
+from services.database.database_service import get_collection
+
+logger = logging.getLogger("uvicorn.error")
+TASKS_COLLECTION_NAME = os.getenv("TASKS_COLLECTION_NAME", "TaskDetails")
+
+
+def _set_sampling_position(task_id: Optional[str], ahead: int) -> None:
+    """Record how many sampling jobs are ahead of this task so the UI can show a
+    queue position. Written to TaskDetails where the frontend already polls."""
+    if not task_id:
+        return
+    try:
+        from bson import ObjectId
+
+        try:
+            query_id = ObjectId(task_id)
+        except Exception:
+            query_id = task_id
+        get_collection(TASKS_COLLECTION_NAME).update_one(
+            {"_id": query_id}, {"$set": {"samplingQueuePosition": ahead}}
+        )
+    except Exception as exc:  # position is best-effort; never fail sampling for it
+        logger.warning("Failed to update sampling queue position: %s", exc)
+
 
 @embedding_router.post("/sample")
 async def run_sampling(request: EmbedDatasetRequest):
     """
-    Unified sampling flow.
-    If use_representative_sampling is true, representative sampling runs first,
-    then coverage sampling creates the guide set.
+    Unified sampling flow, run through a concurrency-limited queue so concurrent
+    uploads can't exhaust memory. If use_representative_sampling is true,
+    representative sampling runs first, then coverage sampling creates the guide set.
     """
     try:
         service = DataManagerService(request)
-        service.run_sampling()
+
+        async def on_position(ahead: int) -> None:
+            await asyncio.to_thread(_set_sampling_position, request.taskId, ahead)
+
+        await sampling_queue.submit(service.run_sampling, on_position=on_position)
         return {"success": True, "message": "Sampling completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

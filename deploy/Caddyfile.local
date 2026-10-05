@@ -1,0 +1,35 @@
+# LOCAL TESTING ONLY — never used in deployment.
+#
+# Serves the SPA over plain HTTP on localhost. Browsers block service workers on
+# pages with an untrusted (self-signed) TLS cert, which breaks the in-app /demo
+# (it uses MSW, a service worker, to mock the backend). http://localhost is a
+# "secure context" exception, so service workers register and the demo works.
+#
+# Mounted over /etc/caddy/Caddyfile by deploy/docker-compose.local.yml.
+{
+	auto_https off
+}
+
+http://localhost, http://127.0.0.1 {
+	# API -> Node backend (same docker network).
+	handle /api/* {
+		reverse_proxy node:8080
+	}
+
+	handle /health {
+		reverse_proxy node:8080
+	}
+
+	# Everything else is the SPA; fall back to index.html for client routing.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode gzip
+
+	request_body {
+		max_size 200MB
+	}
+}

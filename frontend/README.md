@@ -1,73 +1,87 @@
-# React + TypeScript + Vite
+# Annotation Assistant — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for Annotation Assistant.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server includes a live demo at `http://localhost:5173/demo`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Demo — build and run locally
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+The demo is a self-contained static build with mocked API responses. No backend required.
+
+**Build:**
+
+```bash
+npm install
+npm run build:demo
+```
+
+Output is written to `dist-demo/`.
+
+**Run:**
+
+```bash
+cd dist-demo
+npx serve .
+```
+
+Open `http://localhost:3000` in your browser.
+
+**Share as a zip:**
+
+```bash
+npm run build:demo
+zip -r annotation-demo.zip dist-demo/
+```
+
+Recipients unzip and run `npx serve .` inside the folder.
+
+## GitHub Pages deployment (repo owner action required)
+
+The workflow at `.github/workflows/deploy-demo-pages.yml` builds and deploys the demo to GitHub Pages automatically on every push to `main`. (Need to change the branch github workflow after merge, currently points to `static-ui` branch)
+
+Because this is a private repository, GitHub Pages must be explicitly enabled and made public by a **repo owner or admin**. This cannot be done by collaborators.
+
+### One-time setup steps
+
+1. **Enable GitHub Actions write access**
+   - Go to **Settings → Actions → General**
+   - Under *Workflow permissions*, select **Read and write permissions**
+   - Save
+
+2. **Enable GitHub Pages**
+   - Go to **Settings → Pages**
+   - Under *Source*, select **GitHub Actions** (not a branch)
+   - Save
+
+3. **Make the Pages site public** *(private repo requirement)*
+   - Still on **Settings → Pages**
+   - Check the visibility — GitHub may require a paid plan (GitHub Team or Enterprise) to have a public Pages site from a private repo
+   - If available, set visibility to **Public**
+   - If not available on your plan, consider mirroring the `dist-demo/` output to a separate public repo and deploying from there
+
+4. **Change the workflow branch trigger to `main`**
+   - In `.github/workflows/deploy-demo-pages.yml`, change `static-ui` to `main` after merging this branch
+   - There is a `# TODO` comment marking the line
+
+### After setup
+
+Every push to `main` triggers a build and deploys to:
+```
+https://<org-or-user>.github.io/<repo-name>/
+```
+
+You can also trigger a deployment manually from the **Actions** tab → **Deploy Demo to GitHub Pages** → **Run workflow**.
+
+## Production build
+
+```bash
+npm run build      # output → dist/
+npm run preview    # preview the production build locally
 ```

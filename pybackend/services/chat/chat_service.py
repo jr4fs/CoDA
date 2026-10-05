@@ -14,11 +14,11 @@ class ChatService:
         self.configs = configs
         self.logger = logging.getLogger("uvicorn.error")
 
-    def send_chat(self, labels: List[Label], task_def:str, model_name: str, system: str, case_notes: str, user_input: Optional[str] = None, **opts) -> Dict[str, Any]:
+    def send_chat(self, labels: List[Label], task_def:str, model_name: str, system: str, text: str, user_input: Optional[str] = None, **opts) -> Dict[str, Any]:
         model = self.registry[model_name] #TODO: add check to see if model is present, if not, need to download if it is a valid model name
         inference_payload = {
             "labels": [l.dict() for l in labels],
-            "case_notes": case_notes,
+            "text": text,
             "task_definition": task_def,
             "user_input": user_input
         }

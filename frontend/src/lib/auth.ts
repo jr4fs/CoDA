@@ -37,6 +37,7 @@ export function buildUserFromToken(token: string): User | null {
   }
   return {
     id: payload.userId,
+    name: payload.username,
     username: payload.username,
     email: payload.email,
   };

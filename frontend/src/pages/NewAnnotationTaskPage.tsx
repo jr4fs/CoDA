@@ -1,5 +1,6 @@
 import {
   Alert,
+  Badge,
   Box,
   Button,
   Container,
@@ -7,6 +8,7 @@ import {
   Grid,
   Group,
   Paper,
+  Progress,
   Select,
   Stack,
   Text,
@@ -16,14 +18,15 @@ import {
 } from "@mantine/core";
 import {
   IconAlertCircle,
-  IconArrowRight,
   IconBook2,
   IconBraces,
+  IconDownload,
   IconFileTypeCsv,
+  IconSparkles,
   IconUpload,
 } from "@tabler/icons-react";
-import { type ReactNode, useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import StepTrackerBanner from "../components/StepTrackerBanner";
 import GuidedTour, { GuidedTourStep } from "../components/common/GuidedTour";
 import PageIntro, { usePageIntroTour } from "../components/common/PageIntro";
@@ -33,21 +36,26 @@ import {
   modelOptions,
 } from "../constants/datasetUpload.constants";
 import { toast } from "../lib/toast";
-import { createTask, uploadFile } from "../services/tasks.service";
-import { csvToJson } from "../utils/csvUtil";
+import {
+  completeAutoLabelTask,
+  downloadAnnotationOutputFile,
+  getAutoLabelProgress,
+  getTaskById,
+  startAutoLabelJob,
+  uploadFile,
+  uploadOutputFile,
+} from "../services/tasks.service";
 import { downloadContent } from "../utils/downloadContent";
 import styles from "./DatasetUploadPage.module.css";
 
 interface AnnotationTaskConfig {
   selectedModel: string | null;
   textColumn: string;
-  labelColumn: string;
 }
 
 const defaultConfig: AnnotationTaskConfig = {
   selectedModel: "mistral:7b",
   textColumn: "translated_text",
-  labelColumn: "Final Label",
 };
 
 const CODEBOOK_TEMPLATE = `# Codebook
@@ -213,7 +221,10 @@ function parseLabelsJson(raw: string) {
   });
 }
 
+type LabelingPhase = "idle" | "running" | "done" | "error";
+
 export default function NewAnnotationTaskPage() {
+  const { taskId } = useParams<{ taskId?: string }>();
   const navigate = useNavigate();
   const { colorScheme } = useMantineColorScheme();
   const isLight = colorScheme === "light";
@@ -223,8 +234,93 @@ export default function NewAnnotationTaskPage() {
   const [taskJsonFile, setTaskJsonFile] = useState<File | null>(null);
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<AnnotationTaskConfig>(defaultConfig);
-  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [labelingPhase, setLabelingPhase] = useState<LabelingPhase>("idle");
+  const [labelingProgress, setLabelingProgress] = useState({ completed: 0, total: 0 });
+  const [labeledRows, setLabeledRows] = useState<Array<Record<string, string>>>([]);
+  const [labelingError, setLabelingError] = useState<string | null>(null);
+  const [completedTaskOutputFile, setCompletedTaskOutputFile] = useState<string | null>(null);
+  const [completedTaskName, setCompletedTaskName] = useState<string | null>(null);
+
+  // Load task state when navigating to /new-annotation/:taskId (including after page reload)
+  useEffect(() => {
+    if (!taskId) return;
+    getTaskById(taskId).then((res) => {
+      const task = res?.task ?? res;
+      if (!task) return;
+      setConfig((prev) => ({
+        ...prev,
+        ...(task.modelName ? { selectedModel: task.modelName } : {}),
+        ...(task.labelColumn ? { textColumn: task.labelColumn } : {}),
+      }));
+      if (task.status === "auto_label_complete" && task.outputFile) {
+        setCompletedTaskOutputFile(task.outputFile);
+        setCompletedTaskName(task.name ?? null);
+        setLabelingPhase("done");
+      } else if (task.status === "auto_labeling") {
+        setCompletedTaskName(task.name ?? null);
+        setLabelingPhase("running");
+      }
+    }).catch(() => {});
+  }, [taskId]);
+
+  // Poll Python backend for progress while a job is running
+  useEffect(() => {
+    if (!taskId || labelingPhase !== "running") return;
+
+    const intervalId = setInterval(() => {
+      void (async () => {
+        try {
+          const progress = await getAutoLabelProgress(taskId);
+          setLabelingProgress({ completed: progress.completed, total: progress.total });
+
+          if (progress.done) {
+            clearInterval(intervalId);
+
+            if (progress.error) {
+              setLabelingError(progress.error);
+              setLabelingPhase("error");
+              return;
+            }
+
+            const labeled = progress.rows ?? [];
+            if (labeled.length > 0) {
+              function csvEscape(val: string): string {
+                if (/[",\n]/.test(val)) return `"${val.replace(/"/g, '""')}"`;
+                return val;
+              }
+              const headers = Object.keys(labeled[0]);
+              const csvLines = [
+                headers.join(","),
+                ...labeled.map((r) => headers.map((h) => csvEscape(r[h] ?? "")).join(",")),
+              ];
+              const csvBlob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+              const outputFile = new File([csvBlob], `labeled_${taskId}.csv`, { type: "text/csv" });
+              try {
+                const upload = await uploadOutputFile(outputFile, taskId);
+                if (upload.success && upload.filePath) {
+                  await completeAutoLabelTask(taskId, upload.filePath);
+                  setCompletedTaskOutputFile(upload.filePath);
+                }
+              } catch (uploadErr) {
+                console.error("[auto-label] Failed to save output:", uploadErr);
+              }
+              setLabeledRows(labeled);
+            }
+
+            setLabelingPhase("done");
+            window.dispatchEvent(new Event("tasks:updated"));
+            toast.success("Auto-labeling complete.");
+          }
+        } catch {
+          // Ignore transient poll errors — keep polling
+        }
+      })();
+    }, 1500);
+
+    return () => clearInterval(intervalId);
+  }, [taskId, labelingPhase]);
 
   const {
     introOpen,
@@ -241,8 +337,7 @@ export default function NewAnnotationTaskPage() {
       taskJsonFile &&
       labelsJsonFile &&
       config.selectedModel &&
-      config.textColumn &&
-      config.labelColumn,
+      config.textColumn,
   );
 
   const dividerColor = isLight
@@ -263,80 +358,121 @@ export default function NewAnnotationTaskPage() {
     setLabelsJsonFile(null);
     setConfig(defaultConfig);
     setError(null);
+    setLabelingPhase("idle");
+    setLabelingProgress({ completed: 0, total: 0 });
+    setLabeledRows([]);
+    setLabelingError(null);
+    setCompletedTaskOutputFile(null);
+    setCompletedTaskName(null);
   }, []);
 
-  const handleCreate = useCallback(async () => {
+  const handleAutoLabel = useCallback(async () => {
     if (
       !unlabeledFile ||
       !codebookFile ||
       !taskJsonFile ||
       !labelsJsonFile ||
-      !config.selectedModel
+      !config.selectedModel ||
+      !config.textColumn
     ) {
       setError("Please provide all required files and task config fields.");
       return;
     }
 
     setError(null);
-    setIsCreating(true);
+    setLabelingError(null);
 
     try {
-      const [taskRaw, labelsRaw, codebookRaw, rows] = await Promise.all([
+      const [taskRaw, labelsRaw, codebookRaw, uploadResult] = await Promise.all([
         taskJsonFile.text(),
         labelsJsonFile.text(),
         codebookFile.text(),
-        csvToJson<Record<string, unknown>>(unlabeledFile),
+        uploadFile(unlabeledFile),
       ]);
+
+      if (!uploadResult.success || !uploadResult.filePath) {
+        throw new Error(uploadResult.message ?? "Failed to upload dataset.");
+      }
 
       const task = parseTaskJson(taskRaw);
       const labels = parseLabelsJson(labelsRaw);
-      const columns =
-        rows.length > 0 ? Object.keys(rows[0] || {}).filter(Boolean) : [];
-      const codebook = codebookRaw
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
+      const codebook = codebookRaw.split(/\r?\n/).map((l: string) => l.trim()).filter(Boolean);
 
-      const upload = await uploadFile(unlabeledFile);
-      if (!upload.success || !upload.filePath) {
-        throw new Error(upload.message || "Failed to upload unlabeled dataset.");
-      }
-
-      const created = await createTask({
+      const result = await startAutoLabelJob({
         name: task.name,
         description: task.description,
         type: task.type,
         labels,
         codebook,
-        columns,
-        file: upload.filePath,
-        userID: "",
+        inputFileName: unlabeledFile.name,
+        filePath: uploadResult.filePath,
+        modelName: config.selectedModel,
+        taskJsonRaw: taskRaw,
+        labelsJsonRaw: labelsRaw,
+        textColumn: config.textColumn,
       });
 
-      if (!created.success || !created.taskId) {
-        throw new Error(created.message || "Failed to create annotation task.");
+      if (!result.success || !result.taskId) {
+        throw new Error(result.message ?? "Failed to start auto-label job.");
       }
 
-      window.dispatchEvent(new Event("tasks:updated"));
-      toast.success("Annotation task created.");
-      navigate(`/annotate-dataset/${created.taskId}`);
+      navigate(`/new-annotation/${result.taskId}`);
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Failed to create annotation task.");
-      } else {
-        setError("Failed to create annotation task.");
-      }
-    } finally {
-      setIsCreating(false);
+      const msg = err instanceof Error ? err.message : "Failed to start auto-labeling.";
+      setError(msg);
     }
   }, [
     codebookFile,
     config.selectedModel,
+    config.textColumn,
     labelsJsonFile,
     navigate,
     taskJsonFile,
     unlabeledFile,
   ]);
+
+  const handleDownloadLabeled = useCallback(async () => {
+    // If we have labeled rows in memory, do a client-side download
+    if (labeledRows.length > 0) {
+      const headers = Object.keys(labeledRows[0]);
+      function csvEscapeVal(val: string): string {
+        if (/[",\n]/.test(val)) return `"${val.replace(/"/g, '""')}"`;
+        return val;
+      }
+      const csvLines = [
+        headers.join(","),
+        ...labeledRows.map((r) => headers.map((h) => csvEscapeVal(r[h] ?? "")).join(",")),
+      ];
+      const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `labeled_${unlabeledFile?.name ?? "dataset.csv"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // Viewing an existing completed task — download from server
+    if (completedTaskOutputFile) {
+      try {
+        const blob = await downloadAnnotationOutputFile(completedTaskOutputFile);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        const filename = completedTaskOutputFile.split("/").pop() ?? "annotated.csv";
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch {
+        toast.error("Failed to download annotated file.");
+      }
+    }
+  }, [labeledRows, unlabeledFile, completedTaskOutputFile]);
 
   return (
     <Box
@@ -404,20 +540,6 @@ export default function NewAnnotationTaskPage() {
                       value={config.textColumn}
                       onChange={(event) =>
                         setConfigField("textColumn", event.currentTarget.value)
-                      }
-                      classNames={{
-                        label: styles.configLabel,
-                        description: styles.configDescription,
-                        input: styles.configInput,
-                      }}
-                    />
-                    <TextInput
-                      label="Label column name"
-                      description="Target label column used in the output."
-                      placeholder="e.g. annotation_label, final_label"
-                      value={config.labelColumn}
-                      onChange={(event) =>
-                        setConfigField("labelColumn", event.currentTarget.value)
                       }
                       classNames={{
                         label: styles.configLabel,
@@ -542,22 +664,90 @@ export default function NewAnnotationTaskPage() {
               </Button>
               <GuidedTourStep
                 order={5}
-                title="Create task"
-                description="Create the annotation task when all required files are selected."
+                title="Annotate dataset"
+                description="Start automated annotation when all required files are selected."
                 position="top"
               >
                 <Button
                   className={styles.primaryCta}
-                  leftSection={<IconUpload size={18} />}
-                  rightSection={<IconArrowRight size={16} />}
-                  loading={isCreating}
-                  disabled={!isReady}
-                  onClick={handleCreate}
+                  leftSection={<IconSparkles size={18} />}
+                  loading={labelingPhase === "running"}
+                  disabled={!isReady || labelingPhase === "running"}
+                  onClick={handleAutoLabel}
                 >
-                  Create annotation task
+                  Annotate dataset
                 </Button>
               </GuidedTourStep>
             </Group>
+
+            {labelingPhase !== "idle" && (
+              <Paper className={styles.dropCard} radius="lg" mt="md">
+                <Stack gap="sm">
+                  <Group justify="space-between" wrap="nowrap">
+                    <Stack gap={2}>
+                      <Title order={5} className={styles.tableTitle}>
+                        {completedTaskName ?? "Auto-labeling progress"}
+                      </Title>
+                      {completedTaskName && (
+                        <Text size="xs" className={styles.tableMeta}>
+                          Auto-annotation task
+                        </Text>
+                      )}
+                    </Stack>
+                    {labelingPhase === "done" && (
+                      <Badge color="green" variant="light">
+                        Complete
+                      </Badge>
+                    )}
+                  </Group>
+                  {labelingPhase === "running" && (
+                    <>
+                      <Text size="sm" className={styles.tableMeta}>
+                        {labelingProgress.total > 0
+                          ? `${labelingProgress.completed} / ${labelingProgress.total} samples annotated`
+                          : "Starting…"}
+                      </Text>
+                      <Progress
+                        value={
+                          labelingProgress.total > 0
+                            ? (labelingProgress.completed / labelingProgress.total) * 100
+                            : 0
+                        }
+                        animated
+                        size="sm"
+                      />
+                    </>
+                  )}
+                  {labelingPhase === "done" && labelingProgress.total > 0 && (
+                    <>
+                      <Text size="sm" className={styles.tableMeta}>
+                        {labelingProgress.completed} / {labelingProgress.total} samples annotated
+                      </Text>
+                      <Progress value={100} size="sm" />
+                    </>
+                  )}
+                  {labelingPhase === "error" && (
+                    <Alert
+                      icon={<IconAlertCircle size={16} />}
+                      color="red"
+                      variant="light"
+                    >
+                      {labelingError}
+                    </Alert>
+                  )}
+                  {labelingPhase === "done" && (labeledRows.length > 0 || completedTaskOutputFile) && (
+                    <Button
+                      variant="light"
+                      className={styles.secondaryCta}
+                      leftSection={<IconDownload size={16} />}
+                      onClick={() => void handleDownloadLabeled()}
+                    >
+                      Download annotated CSV
+                    </Button>
+                  )}
+                </Stack>
+              </Paper>
+            )}
           </Stack>
         </GuidedTour>
       </Container>

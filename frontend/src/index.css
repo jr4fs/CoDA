@@ -1,4 +1,93 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  --font-dashboard: "Inter", sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+}
+
+@layer base {
+  .dashboard-shell,
+  .dashboard-shell *,
+  .dashboard-shell::before,
+  .dashboard-shell::after {
+    box-sizing: border-box;
+  }
+
+  .dashboard-shell :where(h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd) {
+    margin: 0;
+  }
+
+  .dashboard-shell :where(ol, ul, menu) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .dashboard-shell :where(button, input, optgroup, select, textarea) {
+    font: inherit;
+    letter-spacing: inherit;
+    background-color: transparent;
+    background-image: none;
+  }
+
+  .dashboard-shell :where(img, svg, video, canvas, audio, iframe, embed, object) {
+    display: block;
+    vertical-align: middle;
+  }
+}
+
+.dashboard-shell {
+  --background: #eceff2;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --muted: #f3f4f6;
+  --muted-foreground: #667085;
+  --primary: #0274e5;
+  --primary-foreground: #ffffff;
+  --accent: #e8f2fc;
+  --accent-foreground: #075ea8;
+  --border: #dfe4e8;
+  --ring: #228be6;
+  --success: #319b58;
+  --success-foreground: #ffffff;
+  --chart-baseline: #9aafca;
+  --chart-final: #396bc6;
+  --chart-accepted: #33996b;
+  --chart-corrected: #f09d0f;
+  --chart-error: #d35f5f;
+  --chart-grid: #e5e7eb;
+  --chart-axis: #8a9099;
+
+  height: 100dvh;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--background);
+  color: var(--foreground);
+  color-scheme: light;
+  font-family: "Inter", sans-serif;
+}
+
+.mantine-AppShell-main:has(> .dashboard-shell) {
+  background: #eceff2;
+}
 
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -46,12 +135,8 @@
 }
 
 a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+  color: inherit;
+  text-decoration: none;
 }
 
 html,
@@ -75,19 +160,19 @@ h1 {
 }
 
 button {
-  border-radius: 8px;
   border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
+  border-radius: 8px;
   font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.25s;
+
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
 }
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }

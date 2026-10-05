@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple
 from .rep_sampling import RepresentativeSampling
 from .coverage_sampling import CoverageBasedSampling
 from .model_singleton import get_embedding_model
+from .sampling_utils import apply_candidate_cap
 from ..database.database_service import get_collection
 from datetime import datetime, timezone
 from utils.runtime_config import is_ui_dev_mode
@@ -90,7 +91,10 @@ class DataManagerService:
             source_path = self.project_root / 'shared_uploads' / self.request.file_path
         df = pd.read_csv(source_path)
         if not rest_path.exists():
-            df.to_csv(rest_path, index=False)
+            df.to_csv(rest_path, index=False)  # persist the FULL remaining set
+        # Cap the candidate pool (in-memory only) before embedding — no-op unless
+        # SAMPLING_CANDIDATE_CAP is set. The full rest set above is untouched.
+        df = apply_candidate_cap(df)
         obj = CoverageBasedSampling(
             df = df,
             model = get_embedding_model()

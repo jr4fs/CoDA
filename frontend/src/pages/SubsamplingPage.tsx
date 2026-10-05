@@ -29,7 +29,6 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   createTask,
-  checkValFileExists,
   getUserTasks,
 } from "../services/tasks.service";
 import { embedDataset } from "../services/embedding.service";
@@ -402,6 +401,7 @@ export default function SubsamplingPage() {
       const payload: EmbedDatasetRequest = {
         file_path: fileName,
         text_col: chosenCol,
+        label_col: "task_label",
         taskId: task?._id ?? "",
         userId: user?.id || "00000",
         labels: taskLabels.filter(

@@ -12,6 +12,7 @@ const UPLOADS_DIR = path.join(PROJECT_ROOT, "shared_uploads");
 const VAL_DATASETS_DIR = path.join(PROJECT_ROOT, "val_datasets");
 const REST_DATASETS_DIR = path.join(PROJECT_ROOT, "rest_datasets");
 const GUIDE_DATASETS_DIR = path.join(PROJECT_ROOT, "guide_datasets");
+const ANNOTATION_OUTPUTS_DIR = path.join(PROJECT_ROOT, "annotation_outputs");
 
 function generateUUID7(){
     const uuid = uuidv7();
@@ -177,6 +178,21 @@ export function fileExists(filename: string) {
 
 export function getUploadsPath(filename: string): string {
   return path.join(UPLOADS_DIR, filename);
+}
+
+export function ensureAnnotationOutputsDir(): void {
+  try {
+    if (!fs.existsSync(ANNOTATION_OUTPUTS_DIR)) {
+      fs.mkdirSync(ANNOTATION_OUTPUTS_DIR, { recursive: true });
+    }
+  } catch (error) {
+    console.error(`[fileUpload] Failed to ensure annotation_outputs directory:`, error);
+    throw error;
+  }
+}
+
+export function getAnnotationOutputPath(filename: string): string {
+  return path.join(ANNOTATION_OUTPUTS_DIR, filename);
 }
 
 export function getValDatasetPath(filename: string): string {

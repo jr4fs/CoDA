@@ -23,6 +23,7 @@ interface UseAnnotationReviewFlowArgs {
   codebook: string[];
   getCodebookSnapshot: () => string[];
   setLastPromptUsed: Dispatch<SetStateAction<string>>;
+  reviewEnabled: boolean;
 }
 
 export function useAnnotationReviewFlow({
@@ -31,6 +32,7 @@ export function useAnnotationReviewFlow({
   codebook,
   getCodebookSnapshot,
   setLastPromptUsed,
+  reviewEnabled,
 }: UseAnnotationReviewFlowArgs) {
   const [localGuideAnnotations, setLocalGuideAnnotations] = useState(guideAnnotations || []);
   const [isLoading, setIsLoading] = useState(false);
@@ -157,7 +159,7 @@ export function useAnnotationReviewFlow({
     const payload: InferenceRequest = {
       labels: task?.labels || [],
       task_definition: task?.description || "",
-      case_notes: finalText,
+      text: finalText,
       model_name: task?.modelName || "mistral:7b",
       task_type: "annotation",
       user_input: codebook.join("\n"),
@@ -239,7 +241,7 @@ export function useAnnotationReviewFlow({
   ]);
 
   useEffect(() => {
-    if (!annotationsForReview.length || currentIndex >= annotationsForReview.length) return;
+    if (!reviewEnabled || !annotationsForReview.length || currentIndex >= annotationsForReview.length) return;
 
     if (skipInferenceRef.current) {
       skipInferenceRef.current = false;
@@ -283,7 +285,7 @@ export function useAnnotationReviewFlow({
       }
     };
     void runInference();
-  }, [annotationsForReview, currentBatchIndex, currentIndex, handleClickAnnotation, task?._id, getCodebookSnapshot]);
+  }, [annotationsForReview, currentBatchIndex, currentIndex, handleClickAnnotation, task?._id, getCodebookSnapshot, reviewEnabled]);
 
   const handleNextClick = async () => {
     try {
@@ -355,7 +357,8 @@ export function useAnnotationReviewFlow({
     if (currentIndex < totalSamples - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
-      setCurrentIndex(totalSamples);
+      // Keep focus on last sample after completion to avoid an empty n+1/n state.
+      setCurrentIndex(Math.max(totalSamples - 1, 0));
     }
   };
 

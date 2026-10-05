@@ -1,0 +1,33 @@
+# Local testing overlay: adds a throwaway MongoDB so you don't need Atlas to
+# smoke-test the full stack on your machine.
+#
+# Run with BOTH files:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.local.yml up --build
+#
+# In your .env set:  DB_CONN_STRING=mongodb://mongo:27017
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    expose:
+      - "27017"
+
+  pybackend:
+    depends_on:
+      - mongo
+
+  node:
+    depends_on:
+      - pybackend
+      - mongo
+
+  # Serve over http://localhost so the in-app /demo (MSW service worker) works
+  # locally — browsers block service workers on the self-signed HTTPS cert.
+  caddy:
+    volumes:
+      - ./deploy/Caddyfile.local:/etc/caddy/Caddyfile:ro
+
+volumes:
+  mongo_data:

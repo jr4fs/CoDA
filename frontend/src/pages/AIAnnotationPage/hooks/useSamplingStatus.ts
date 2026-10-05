@@ -13,6 +13,7 @@ interface UseSamplingStatusArgs {
 export function useSamplingStatus({ taskId, taskStatus, refreshTaskData }: UseSamplingStatusArgs) {
   const [polledStatus, setPolledStatus] = useState<SamplingStatus>(null);
   const [samplingErrorMsg, setSamplingErrorMsg] = useState<string | null>(null);
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const samplingNotifiedRef = useRef(false);
 
   useEffect(() => {
@@ -36,6 +37,8 @@ export function useSamplingStatus({ taskId, taskStatus, refreshTaskData }: UseSa
 
         if (!mounted) return;
         setPolledStatus(latestStatus);
+        const position = response.task?.samplingQueuePosition;
+        setQueuePosition(typeof position === "number" ? position : null);
 
         if (latestStatus === "ready") {
           await refreshTaskData();
@@ -60,7 +63,7 @@ export function useSamplingStatus({ taskId, taskStatus, refreshTaskData }: UseSa
     };
 
     void pollStatus();
-    const intervalId = window.setInterval(() => void pollStatus(), 60_000);
+    const intervalId = window.setInterval(() => void pollStatus(), 15_000);
 
     return () => {
       mounted = false;
@@ -78,5 +81,6 @@ export function useSamplingStatus({ taskId, taskStatus, refreshTaskData }: UseSa
   return {
     samplingErrorMsg,
     effectiveStatus,
+    queuePosition,
   };
 }

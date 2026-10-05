@@ -1,4 +1,4 @@
-import { Button, Group, Popover, Stack, Text } from "@mantine/core";
+import { Button, Group, Popover, Stack, Text, useMantineColorScheme, useMantineTheme } from "@mantine/core";
 import {
   Children,
   cloneElement,
@@ -85,7 +85,10 @@ function injectTourContext(children: ReactNode, context: TourContextValue): Reac
     const props = (element.props as UnknownProps) ?? {};
 
     if (isGuidedTourStepElement(element)) {
-      return cloneElement(element, { [TOUR_CONTEXT_PROP]: context });
+      return cloneElement(element, {
+        [TOUR_CONTEXT_PROP]: context,
+        children: injectTourContext(props.children as ReactNode, context),
+      });
     }
 
     if (props.children) {
@@ -144,6 +147,8 @@ export function GuidedTourStep({
   [TOUR_CONTEXT_PROP]: context,
 }: GuidedTourStepInternalProps) {
   const targetRef = useRef<HTMLDivElement | null>(null);
+  const { colorScheme } = useMantineColorScheme();
+  const theme = useMantineTheme();
 
   const isActive = Boolean(context?.isOpen && context.activeOrder === order);
   const isLastStep = context?.isLast(order) ?? false;
@@ -160,6 +165,23 @@ export function GuidedTourStep({
     });
   }, [isActive]);
 
+  // Check for dark mode - also check system preference if colorScheme is "auto"
+  let isDark = colorScheme === "dark";
+  if (colorScheme === "auto") {
+    isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+
+  const bubbleStyle = {
+    background: isDark ? theme.colors.gray[8] : theme.colors.gray[0],
+    borderColor: isDark ? theme.colors.gray[6] : theme.colors.gray[2],
+    color: isDark ? theme.colors.gray[1] : theme.colors.gray[9],
+    boxShadow: isDark ? "0 16px 36px rgba(0, 0, 0, 0.45)" : "0 16px 36px rgba(0, 0, 0, 0.15)",
+    border: `1px solid ${isDark ? theme.colors.gray[6] : theme.colors.gray[2]}`,
+    maxWidth: "50vw",
+    whiteSpace: "normal" as const,
+    overflowWrap: "break-word" as const,
+  };
+
   return (
     <Popover opened={isActive} position={position} withArrow withinPortal shadow="md">
       <Popover.Target>
@@ -170,7 +192,7 @@ export function GuidedTourStep({
           {children}
         </div>
       </Popover.Target>
-      <Popover.Dropdown className={styles.bubble}>
+      <Popover.Dropdown style={bubbleStyle}>
         <Stack gap="xs">
           <Text fw={600}>{title}</Text>
           <Text size="sm" c="dimmed">

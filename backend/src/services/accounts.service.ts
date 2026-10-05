@@ -7,6 +7,7 @@ import {
   verifyRefreshToken,
 } from "../utils/jwt";
 import argon2 from "argon2";
+import { isAdminEmail } from "../utils/admin";
 
 interface InputFieldValidation {
   valid: boolean;
@@ -20,7 +21,7 @@ interface UserAccountValidation {
   passwordErrors: string[];
 }
 
-function validateUsername(username: string): InputFieldValidation {
+export function validateUsername(username: string): InputFieldValidation {
   var errors: string[] = [];
   if (username && username.length >= 3) {
     return {
@@ -35,7 +36,7 @@ function validateUsername(username: string): InputFieldValidation {
   };
 }
 
-function validateEmail(email: string): InputFieldValidation {
+export function validateEmail(email: string): InputFieldValidation {
   const errors: string[] = [];
   // Check if empty
   if (!email || email.trim() === "") {
@@ -64,7 +65,7 @@ function validateEmail(email: string): InputFieldValidation {
   };
 }
 
-function validatePassword(password: string): InputFieldValidation {
+export function validatePassword(password: string): InputFieldValidation {
   const errors: string[] = [];
   // Check minimum length
   if (password.length < 8) {
@@ -104,7 +105,7 @@ function validatePayload(payload: CreateUserRequest): UserAccountValidation {
   };
 }
 
-async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string): Promise<string> {
   try {
     // argon2 handles salting automatically and uses secure defaults
     const hash = await argon2.hash(password);
@@ -163,10 +164,11 @@ export async function createUser(req: Request, res: Response) {
     }
 
     //Creating a new user object with hashed password and creation timestamp
-    const newUser: CreateUserRequest = {
+    const newUser = {
       username: validationPayload.username,
       email: validationPayload.email,
       password: await hashPassword(validationPayload.password),
+      active: true,
       createdAt: new Date().toISOString(),
     };
 
@@ -191,6 +193,7 @@ export async function createUser(req: Request, res: Response) {
         id: result.insertedId.toString(),
         email: newUser.email,
         username: newUser.username,
+        isAdmin: isAdminEmail(newUser.email),
       },
     });
   } catch (error: any) {
@@ -239,6 +242,14 @@ export async function loginUser(req: Request, res: Response) {
       });
     }
 
+    // Deactivated accounts (active === false) cannot log in.
+    if (existingUser.active === false) {
+      return res.status(403).json({
+        success: false,
+        message: "This account has been deactivated. Contact an administrator.",
+      });
+    }
+
     const auth_payload = {
       userId: existingUser._id.toString(),
       email: existingUser.email,
@@ -257,6 +268,7 @@ export async function loginUser(req: Request, res: Response) {
         id: existingUser._id.toString(),
         email: existingUser.email,
         username: existingUser.username,
+        isAdmin: isAdminEmail(existingUser.email),
       },
     });
   } catch (error: any) {

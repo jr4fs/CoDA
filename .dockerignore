@@ -1,0 +1,38 @@
+# All three images build from the repo root; keep the context small and avoid
+# shipping host-only artifacts, data, or secrets into the build.
+.git
+.github
+.idea
+.venv
+venv
+**/venv
+**/__pycache__
+node_modules
+**/node_modules
+frontend/dist
+frontend/dist-demo
+backend/dist
+pybackend/bin
+pybackend/data
+
+# Runtime data dirs (live on the host volume, never in the image)
+shared_uploads
+val_datasets
+rest_datasets
+guide_datasets
+generated_codebooks
+metrics
+temp
+temp_a
+
+# Local env / secrets
+.env
+**/.env
+.env.*
+!**/.env.example
+
+# Misc
+.context
+.playwright-mcp
+*.log
+.DS_Store

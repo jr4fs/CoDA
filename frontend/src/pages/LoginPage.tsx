@@ -17,12 +17,16 @@ import {
 import { useForm } from "@mantine/form";
 import { IconExclamationMark } from "@tabler/icons-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoginUserRequest } from "@common/types/accounts";
 import { loginUser } from "../services/account.service";
+import { getClientConfig } from "../services/config.service";
 import { AxiosError } from "axios";
 import { useDispatch } from "react-redux";
 import { setUser } from "../store/userSlice";
+import { PilotBanner } from "../components/PilotBanner";
+
+const isPilot = import.meta.env.VITE_APP_MODE === "pilot";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -30,6 +34,13 @@ export default function LoginPage() {
   const isLight = colorScheme === "light";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [signupAllowed, setSignupAllowed] = useState(false);
+
+  useEffect(() => {
+    getClientConfig()
+      .then((cfg) => setSignupAllowed(cfg.allowSignup))
+      .catch(() => setSignupAllowed(false));
+  }, []);
   const dispatch = useDispatch();
 
   const form = useForm({
@@ -53,8 +64,6 @@ export default function LoginPage() {
     setError("");
     try {
       const res = await loginUser(values);
-      console.log("Login success:", res);
-      // TODO: store auth token (JWT) / redirect user to landing page
       dispatch(
         setUser({
           user: res.user,
@@ -63,9 +72,8 @@ export default function LoginPage() {
         }),
       );
       setLoading(false);
-      navigate("/");
+      navigate("/home");
     } catch (error) {
-      console.error("Login Error: ", error);
       if (error instanceof AxiosError) {
         const errorMessage = error?.response?.data?.message || error?.message;
 
@@ -79,6 +87,8 @@ export default function LoginPage() {
   };
 
   return (
+    <>
+    {isPilot && <PilotBanner />}
     <BackgroundImage src="/paint.jpg" radius="xs" w="100vw" h="100vh">
       <Center w="100%" h="100%">
         <Paper
@@ -142,17 +152,20 @@ export default function LoginPage() {
                 />
               </Stack>
             </form>
-            <Box>
-              <Text ta="center">
-                Don't have an account?{" "}
-                <Anchor component={Link} to="/signup" c="#50C878">
-                  Sign Up
-                </Anchor>
-              </Text>
-            </Box>
+            {signupAllowed && (
+              <Box>
+                <Text ta="center">
+                  Don't have an account?{" "}
+                  <Anchor component={Link} to="/signup" c="#50C878">
+                    Sign Up
+                  </Anchor>
+                </Text>
+              </Box>
+            )}
           </Stack>
         </Paper>
       </Center>
     </BackgroundImage>
+    </>
   );
 }

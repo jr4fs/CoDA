@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import re
-import torch
-from sentence_transformers import SentenceTransformer
-from typing import List, Optional, Tuple
-from .model_singleton import get_embedding_model, DEVICE
+from typing import TYPE_CHECKING, List, Optional, Tuple
+from .model_singleton import get_embedding_model, EMBEDDINGS_PROVIDER
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 class DatasetEmbedding:
    
@@ -33,7 +36,6 @@ class DatasetEmbedding:
       self.do_split_sentences = do_split_sentences
       self.vector_col = "vector"
       self.use_cosine = use_cosine
-      self.device = DEVICE
         
       # combining string columns
       self.df["text_combined"] = self.df[self.text_cols].fillna("").astype(str).agg(" ".join, axis=1).str.strip() 
@@ -108,14 +110,14 @@ class DatasetEmbedding:
       database_df = pd.DataFrame.from_records(records)
       database_df["row_id"] = range(len(database_df))
          
-      # compute embeddings
-      print(f"Embedding {len(database_df)} texts with {self.sentence_model} on {self.device}...")
+      # compute embeddings (model already carries its device; API models ignore it)
+      backend = self.sentence_model if EMBEDDINGS_PROVIDER in ("", "local") else f"{EMBEDDINGS_PROVIDER} API"
+      print(f"Embedding {len(database_df)} texts with {backend}...")
       vectors = model.encode(
          database_df["text"].tolist(),
          batch_size=batch_size,
          convert_to_numpy=True,
          show_progress_bar=True,
-         device=self.device
       )
          
       # embedded D_all
