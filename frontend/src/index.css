@@ -1,6 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-@import "tailwindcss/theme.css" layer(theme);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss";
 
 @theme inline {
   --font-dashboard: "Inter", sans-serif;
@@ -19,36 +18,6 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
-}
-
-@layer base {
-  .dashboard-shell,
-  .dashboard-shell *,
-  .dashboard-shell::before,
-  .dashboard-shell::after {
-    box-sizing: border-box;
-  }
-
-  .dashboard-shell :where(h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd) {
-    margin: 0;
-  }
-
-  .dashboard-shell :where(ol, ul, menu) {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .dashboard-shell :where(button, input, optgroup, select, textarea) {
-    font: inherit;
-    letter-spacing: inherit;
-    color: inherit;
-  }
-
-  .dashboard-shell :where(img, svg, video, canvas, audio, iframe, embed, object) {
-    display: block;
-    vertical-align: middle;
-  }
 }
 
 .dashboard-shell {
