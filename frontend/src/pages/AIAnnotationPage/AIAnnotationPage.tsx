@@ -261,9 +261,9 @@ export default function AnnotationPage() {
 
             <Grid gutter="md" align="stretch" className={styles.annotationGrid}>
               <Grid.Col span={{ base: 12, md: 8 }} h="100%" className={styles.mainColumn}>
-                <GuidedTourStep order={1} position="bottom" title="Batch Progress" description="Each batch contains ~10 samples. You review and mark each as correct or incorrect. After completing the batch, click 'Commit Batch' to synthesize rules.">
-                  <Paper radius="lg" bg={surface}>
-                    <Stack p="md" gap="md" style={{ overflow: "auto" }}>
+                <GuidedTourStep className={styles.reviewTourStep} order={1} position="bottom" title="Batch Progress" description="Each batch contains ~10 samples. You review and mark each as correct or incorrect. After completing the batch, click 'Commit Batch' to synthesize rules.">
+                  <Paper className={styles.reviewPaper} radius="lg" bg={surface}>
+                    <Stack p="md" gap="md" className={styles.leftPanelScroll}>
                       <Group justify="space-between" align="center" wrap="nowrap">
                         <BatchProgressSection
                           isLight={isLight}
