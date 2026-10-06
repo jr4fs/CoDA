@@ -150,6 +150,14 @@
   flex-direction: column;
 }
 
+.reviewTourStep,
+.reviewPaper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .leftPanelScroll {
   flex: 1;
   min-height: 0;
@@ -276,8 +284,17 @@
 
   .mainColumn,
   .sidebarColumn,
-  .dropCard {
+  .dropCard,
+  .reviewTourStep,
+  .reviewPaper {
     height: auto;
+    flex: initial;
     min-height: auto;
+  }
+
+  .leftPanelScroll {
+    flex: initial;
+    min-height: auto;
+    overflow: visible;
   }
 }

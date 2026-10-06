@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
@@ -22,6 +23,23 @@
 }
 
 @layer base {
+  button {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: inherit;
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      opacity 150ms ease;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   .dashboard-shell,
   .dashboard-shell *,
   .dashboard-shell::before,
@@ -42,6 +60,11 @@
   .dashboard-shell :where(button, input, optgroup, select, textarea) {
     font: inherit;
     letter-spacing: inherit;
+    color: inherit;
+  }
+
+  .dashboard-shell button {
+    padding: 0;
     background-color: transparent;
     background-image: none;
   }
@@ -157,22 +180,4 @@ body {
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
-}
-
-button {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font-family: inherit;
-  cursor: pointer;
-
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease,
-    opacity 150ms ease;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
 }
