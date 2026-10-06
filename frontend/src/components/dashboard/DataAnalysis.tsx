@@ -28,8 +28,10 @@ const COLORS = [
 ];
 const LABEL_COLORS: Record<string, string> = {
   "health referral": "var(--chart-accepted)",
+  referral: "var(--chart-accepted)",
   "health discussion": "var(--chart-final)",
   neither: "var(--chart-baseline)",
+  "not relevant": "var(--chart-baseline)",
 };
 
 export default function DataAnalysis({ task }: { task: Task }) {
@@ -60,11 +62,7 @@ export default function DataAnalysis({ task }: { task: Task }) {
 function AnalysisView({ task, rows }: { task: Task; rows: Record<string, string>[] }) {
   const detected = useMemo(() => detectDatasetColumns(rows), [rows]);
   const labels = useMemo<AnalysisLabel[]>(
-    () => task.labels.map((label, index) => ({
-      key: label.name.trim(),
-      label: displayLabel(label.name),
-      color: LABEL_COLORS[canonical(label.name)] ?? COLORS[index % COLORS.length],
-    })),
+    () => getAnalysisLabels(task.labels),
     [task.labels],
   );
   const config = useMemo(() => detected ? {
@@ -489,6 +487,21 @@ function formatPeriod(period: string) {
     : period;
 }
 function round(value: number) { return Math.round(value * 10) / 10; }
+
+function getAnalysisLabels(labels: Task["labels"]): AnalysisLabel[] {
+  const reserved = new Set(labels.map((label) => LABEL_COLORS[canonical(label.name)]).filter(Boolean));
+  const used = new Set<string>();
+  return labels.map((label, index) => {
+    const preferred = LABEL_COLORS[canonical(label.name)];
+    const color = preferred && !used.has(preferred)
+      ? preferred
+      : COLORS.find((candidate) => !reserved.has(candidate) && !used.has(candidate))
+        ?? COLORS.find((candidate) => !used.has(candidate))
+        ?? COLORS[index % COLORS.length];
+    used.add(color);
+    return { key: label.name.trim(), label: displayLabel(label.name), color };
+  });
+}
 
 const inputClass = "h-8 rounded-md border border-border bg-card pr-3 !text-[11px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring";
 const selectClass = "h-8 appearance-none rounded-md border border-border bg-card px-3 pr-6 !text-[11px] text-[#666] outline-none focus-visible:ring-2 focus-visible:ring-ring";
