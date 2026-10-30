@@ -9,6 +9,7 @@ const steps = [
 ];
 
 interface StepTrackerBannerProps {
+  evaluationFlow?: boolean;
   currentStep: number;
   activeSteps?: number[];
   onHelp?: () => void;
@@ -16,11 +17,13 @@ interface StepTrackerBannerProps {
 }
 
 export default function StepTrackerBanner({
+  evaluationFlow = false,
   currentStep,
   activeSteps,
   onHelp,
   helpLabel = "About this step",
 }: StepTrackerBannerProps) {
+  const displaySteps = evaluationFlow ? ["Upload task", "Build evaluation set", "AI annotation review", "Codebook completion"] : steps;
   const activeList =
     activeSteps && activeSteps.length > 0 ? activeSteps : [currentStep];
   const activeSet = new Set(activeList);
@@ -28,8 +31,8 @@ export default function StepTrackerBanner({
   const maxActive = Math.max(...activeList);
   const stepLabel =
     activeList.length > 1
-      ? `Steps ${minActive}-${maxActive} of ${steps.length}`
-      : `Step ${currentStep} of ${steps.length}`;
+      ? `Steps ${minActive}-${maxActive} of ${displaySteps.length}`
+      : `Step ${currentStep} of ${displaySteps.length}`;
   return (
     <Box className={styles.banner}>
       <div className={styles.row}>
@@ -50,7 +53,7 @@ export default function StepTrackerBanner({
           )}
         </Group>
         <div className={styles.steps}>
-          {steps.map((label, index) => {
+          {displaySteps.map((label, index) => {
             const stepNumber = index + 1;
             const isActive = activeSet.has(stepNumber);
             const isComplete = stepNumber < minActive;

@@ -121,7 +121,6 @@
   position: relative;
   z-index: 1;
   padding: 26px 24px 4px;
-  animation: fadeUp 700ms ease both;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -151,7 +150,7 @@
   background: rgba(18, 24, 29, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
-  padding: 14px;
+  padding: 24px;
   backdrop-filter: blur(6px);
   height: 100%;
 }
@@ -199,7 +198,7 @@
 }
 
 .fileRow {
-  padding: 10px;
+  padding: 16px;
   border-radius: 12px;
   border: 1px solid rgba(124, 231, 225, 0.25);
   background: linear-gradient(
@@ -210,7 +209,16 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
+  gap: 10px;
+}
+
+.fileRowHeader {
+  row-gap: 12px;
+}
+
+.fileRowActions {
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 
@@ -230,8 +238,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 4px 10px;
-  min-height: 28px;
+  padding: 8px 12px;
+  min-height: 36px;
   border-radius: 8px;
   border: 1px solid rgba(124, 231, 225, 0.4);
   color: #e8eef1;
@@ -257,8 +265,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 4px 10px;
-  min-height: 28px;
+  padding: 8px 12px;
+  min-height: 36px;
   border-radius: 8px;
   border: 1px solid rgba(124, 231, 225, 0.4);
   color: #e8eef1;
@@ -309,8 +317,7 @@
 
 .fileHint {
   color: rgba(232, 238, 241, 0.58);
-  line-height: 1.2;
-  padding-left: 2px;
+  line-height: 1.45;
 }
 
 .fileSubtext {
@@ -333,11 +340,10 @@
 
 .fileMetaRow {
   width: 100%;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 2px;
-  margin-bottom: -2px;
+  gap: 8px 16px;
+  margin-top: 4px;
 }
 
 .fileTemplateButton {
@@ -408,7 +414,7 @@
 .tableSection {
   position: relative;
   z-index: 1;
-  padding: 6px 24px 36px;
+  padding: 20px 24px 48px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -467,5 +473,15 @@
 @media (max-width: 768px) {
   .hero {
     padding-top: 22px;
+  }
+
+  .dropCard {
+    padding: 18px;
+  }
+
+  .fileRowActions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 }

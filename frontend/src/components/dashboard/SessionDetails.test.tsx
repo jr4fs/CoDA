@@ -46,4 +46,15 @@ describe("SessionDetails", () => {
     expect(markup).toContain("wildlife-dataset-original.csv");
     expect(markup).not.toContain("generated-eval-id.csv");
   });
+
+  it("uses completed evaluation-builder reviews rather than legacy val annotations", () => {
+    const markup = renderToStaticMarkup(<SessionDetails task={{
+      ...emptyTask,
+      evaluationBuild: { phase: "frozen", batchSize: 10, targetPerLabel: 20, guideSize: 20, round: 2 },
+      evalResults: { predictionsFilename: "predictions.csv", macroF1: 0.8, accuracy: 0.8, numSamples: 20, completedAt: "2026-10-25T00:00:00.000Z" },
+    }} annotations={[]} evaluationTotal={20} evaluationReviewed={20} />);
+
+    expect(markup).toContain("20/20");
+    expect(markup).not.toContain('title="0/20"');
+  });
 });

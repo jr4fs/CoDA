@@ -2,6 +2,7 @@ import type {
   DatasetColumnConfig,
   NormalizedRecord,
 } from "../../types/dashboard";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 
 export function normalizeDataset(
   rows: Record<string, unknown>[],
@@ -11,7 +12,7 @@ export function normalizeDataset(
     const text = cleanString(row[config.textColumn]);
 
     const label = config.labelColumn
-      ? cleanString(row[config.labelColumn])
+      ? parseEvaluationLabels(row[config.labelColumn]).join(", ")
       : undefined;
 
     const id = config.idColumn
@@ -33,7 +34,7 @@ export function normalizeDataset(
 }
 
 export function countMultiLabelRows(rows: Record<string, unknown>[], labelColumn: string): number {
-  return rows.filter((row) => cleanString(row[labelColumn]).split(",").filter(Boolean).length > 1).length;
+  return rows.filter((row) => parseEvaluationLabels(row[labelColumn]).length > 1).length;
 }
 
 export function detectDatasetColumns(

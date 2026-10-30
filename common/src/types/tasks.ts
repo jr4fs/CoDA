@@ -3,6 +3,7 @@ export interface LabelItem {
   definition: string;
   keywords: string[];
   guidelines?: string;
+  requiresEvidence?: boolean;
 }
 
 export interface EvalLabelResults {
@@ -43,6 +44,7 @@ export interface EvaluationSnapshot {
 }
 
 export interface Task {
+  evaluationBuild?: import("./evaluationBuilder").EvaluationBuild;
   _id?: string; // MongoDB ObjectId as string
   name: string;
   description: string;
@@ -88,6 +90,8 @@ export interface Task {
   // Server path of the labeled full-dataset (d_all) output from the final
   // inference step, so it can be re-downloaded after a reload.
   finalInferenceFile?: string;
+  finalInferenceStatus?: "running" | "ready" | "error";
+  finalInferenceRunId?: string;
   createdAt: string; // ISO 8601 timestamp
   updatedAt?: string; // ISO 8601 timestamp
 }
@@ -199,4 +203,5 @@ export interface AutoLabelProgressResponse {
   done: boolean;
   rows?: Array<Record<string, string>>;
   error?: string;
+  outputFile?: string;
 }

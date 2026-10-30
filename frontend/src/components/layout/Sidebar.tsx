@@ -202,7 +202,7 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
 
       const currentPath = window.location.pathname;
       const isOnDeletedTaskPath =
-        currentPath.endsWith(`/codebook-creation/${task._id}`);
+        currentPath.endsWith(`/codebook-creation/${task._id}`) || currentPath.endsWith(`/evaluation-builder/${task._id}`);
       if (isOnDeletedTaskPath) {
         navigate("/home");
       }
@@ -628,7 +628,7 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
                 tasksList: codebookTasks,
                 listRef: codebookListRef,
                 listHeight: listHeights.codebook,
-                routeBuilder: (task) => `/codebook-creation/${task._id}`,
+                routeBuilder: (task) => `/${task.evaluationBuild && task.evaluationBuild.phase !== "frozen" ? "evaluation-builder" : "codebook-creation"}/${task._id}`,
               })}
 
               {/* Auto Annotation task section hidden for now

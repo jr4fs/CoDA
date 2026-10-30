@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { getTaskAnnotations } from "@/services/annotations.service";
+import { fetchEvaluationBuilder } from "@/services/evaluationBuilder.service";
 import {
   downloadMetricsFile,
   getValEvalProgress,
@@ -44,6 +45,7 @@ export default function DashboardPage() {
     null,
   );
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
+  const [evaluationReviewed, setEvaluationReviewed] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
@@ -61,6 +63,7 @@ export default function DashboardPage() {
 
     let cancelled = false;
     setLoading(true);
+    setEvaluationReviewed(null);
 
     Promise.all([getTaskById(taskId), getTaskAnnotations(taskId)])
       .then(([taskData, annotationData]) => {
@@ -71,6 +74,15 @@ export default function DashboardPage() {
         const loadedAnnotations = annotationData.annotations ?? [];
         setAnnotations(loadedAnnotations);
         setSessionSummary(getSessionSummary(loadedAnnotations));
+        if (loadedTask.evaluationBuild) {
+          void fetchEvaluationBuilder(taskId)
+            .then((state) => {
+              if (!cancelled) setEvaluationReviewed(state.reviewedCount);
+            })
+            .catch(() => {
+              if (!cancelled) setEvaluationReviewed(null);
+            });
+        }
       })
       .catch(() => {
         if (!cancelled) toast.error("Failed to load dashboard data");
@@ -318,6 +330,7 @@ export default function DashboardPage() {
               task={task}
               annotations={annotations}
               evaluationTotal={progress.total}
+              evaluationReviewed={evaluationReviewed}
             />
           </TabsContent>
 

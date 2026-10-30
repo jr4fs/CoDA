@@ -81,15 +81,15 @@ export default function LandingPage() {
               <Stack gap={8} mt={8}>
                 {[
                   {
-                    name: "Labeled",
-                    file: "labeled.csv",
-                    desc: "Pre-labeled dataset for validation. Should contain your raw text data and ground-truth labels. Used to evaluate LLM performance and calibrate feedback.",
+                    name: "Evaluation set (built in the app)",
+                    file: "No labeled upload required",
+                    desc: "Review sampled narratives, assign labels, and highlight supporting text to build an evaluation set before codebook development.",
                     sample: "id,translated_text,label\n1,\"Donated to a pangolin rescue today!\",positive\n2,\"Fresh pangolin scales for sale, DM me...\",negative\n3,\"Cute cartoon pangolin in the new game\",neutral"
                   },
                   {
                     name: "Unlabeled",
                     file: "unlabeled.csv",
-                    desc: "Large pool of unlabeled data. The system will select 150 representative samples from this for annotation. Should be diverse and representative of your full dataset.",
+                    desc: "Your full pool of unlabeled data. The system retrieves relevant narratives and selects diverse review batches, with more search effort for labels with fewer confirmed examples.",
                     sample: "id,translated_text\n1,\"Please share to help stop pangolin poaching...\"\n2,\"Pangolin meat is a must-try delicacy...\"\n3,\"My pangolin plushie arrived today 🥰\"\n4,\"Pangolins are the most trafficked mammal...\""
                   },
                   {
@@ -480,7 +480,7 @@ export default function LandingPage() {
                   <Text className={styles.conceptTitle}>Upload your data</Text>
                 </Group>
                 <Text className={styles.conceptText}>
-                  Labeled validation set + unlabeled pool, task config, label definitions. Start with any dataset.
+                  Unlabeled data, task details, and label definitions. Build your evaluation set through guided review and text highlighting.
                 </Text>
               </Paper>
 

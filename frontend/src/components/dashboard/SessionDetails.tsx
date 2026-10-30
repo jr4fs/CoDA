@@ -20,6 +20,7 @@ interface SessionDetailsProps {
   task: Task;
   annotations: AnnotationItem[];
   evaluationTotal: number;
+  evaluationReviewed?: number | null;
 }
 
 const CARD_STYLES =
@@ -29,6 +30,7 @@ export default function SessionDetails({
   task,
   annotations,
   evaluationTotal,
+  evaluationReviewed,
 }: SessionDetailsProps) {
   const feedback = useMemo(
     () => getUserFeedbackSummary(annotations),
@@ -53,6 +55,7 @@ export default function SessionDetails({
           task={task}
           annotations={annotations}
           evaluationTotal={evaluationTotal}
+          evaluationReviewed={evaluationReviewed}
         />
       </div>
 
@@ -169,24 +172,26 @@ function EvaluationSetupCard({
   task,
   annotations,
   evaluationTotal,
+  evaluationReviewed,
 }: {
   task: Task;
   annotations: AnnotationItem[];
   evaluationTotal: number;
+  evaluationReviewed?: number | null;
 }) {
-  const reviewed = annotations.filter(
-    (annotation) => annotation.source === "val",
-  ).length;
+  const reviewed = task.evaluationBuild
+    ? evaluationReviewed
+    : annotations.filter((annotation) => annotation.source === "val").length;
   const budget = Math.max(
     task.evalResults?.numSamples ?? 0,
     evaluationTotal,
-    reviewed,
+    reviewed ?? 0,
   );
 
   const details = [
     ["Model", task.modelName || "—"],
     ["Budget", budget > 0 ? `${budget} Samples` : "—"],
-    ["Reviewed", budget > 0 ? `${reviewed}/${budget}` : String(reviewed)],
+    ["Reviewed", reviewed === null || reviewed === undefined ? "—" : budget > 0 ? `${reviewed}/${budget}` : String(reviewed)],
     ["Evaluation Set", getFileName(task.valFileName ?? task.valFile)],
     ["Dataset", getFileName(task.inputFileName ?? task.file)],
   ];

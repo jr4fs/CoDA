@@ -3,7 +3,6 @@ import {
   createTask,
   getUserTasks,
   getTaskByID,
-  getDataAnalysisData,
   uploadTaskFile,
   getCsvData,
   checkValFileExists,
@@ -21,13 +20,20 @@ import {
   markCodebookComplete,
   saveFinalInferenceResult,
 } from "../services/tasks.service";
+import { getDataAnalysisSummary, getDataAnalysisIdRecords } from "../services/dataAnalysis.service";
 import { uploadCSV, uploadBundle } from "../utils/fileUpload";
 import { authenticateToken } from "../middleware/auth.middleware";
 
 const router = Router();
+import { getEvaluationBuilder, nextEvaluationRound, saveEvaluationReview, completeEvaluationRound, freezeEvaluation } from "../services/evaluationBuilder.service";
 
 //Adding user authentication, making this a protected route
 router.use(authenticateToken);
+router.get("/:taskId/evaluation", getEvaluationBuilder);
+router.post("/:taskId/evaluation/next", nextEvaluationRound);
+router.put("/:taskId/evaluation/review", saveEvaluationReview);
+router.post("/:taskId/evaluation/complete-round", completeEvaluationRound);
+router.post("/:taskId/evaluation/freeze", freezeEvaluation);
 
 // Upload CSV file (returns filename to use in task creation)
 // Expects form-data with field name "file"
@@ -80,8 +86,9 @@ router.get("/getTasks", getUserTasks);
 // Get a single task's details
 router.get("/getTask/:taskId", getTaskByID);
 
-// Load the persisted labeled dataset used by the Data Analysis tab.
-router.get("/data-analysis/:taskId", getDataAnalysisData);
+// Full-dataset analytics; evaluation samples are never the chart source.
+router.get("/data-analysis/:taskId", getDataAnalysisSummary);
+router.get("/data-analysis/:taskId/id/:id", getDataAnalysisIdRecords);
 
 // Delete a task and associated artifacts
 router.delete("/delete/:taskId", deleteTask);

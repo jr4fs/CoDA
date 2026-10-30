@@ -9,7 +9,8 @@
     "build:demo": "vite build -c vite.demo.config.ts && cp dist-demo/demo-standalone.html dist-demo/index.html",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --exclude 'tests/**/*.spec.ts'",
+    "test:e2e": "playwright test tests/*.spec.ts"
   },
   "dependencies": {
     "@mantine/core": "^8.3.10",

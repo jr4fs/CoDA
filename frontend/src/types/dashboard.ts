@@ -24,6 +24,7 @@ export interface NormalizedRecord {
   text: string;
 
   label?: string;
+  labels?: string[];
   timestamp?: Date;
 
   // preserve original record

@@ -18,11 +18,9 @@ import {
   exportCodebookSnapshot,
   getAutoLabelProgress,
   markCodebookComplete,
-  saveFinalInferenceResult,
   saveTaskCodebook,
   startFinalInference,
   getTaskById,
-  uploadOutputFile,
 } from "../../../services/tasks.service";
 import { downloadContent } from "../../../utils/downloadContent";
 import { INTRO_STORAGE_KEY } from "../constants";
@@ -440,26 +438,6 @@ export const useAIAnnotationController = () => {
     downloadContent(filename, rowsToCsv(rows), "text/csv");
   };
 
-  // Save the labeled full-dataset output to the server so it survives a reload.
-  const persistFinalInference = async (
-    taskId: string,
-    rows: Array<Record<string, string>>,
-  ) => {
-    try {
-      const file = new File([rowsToCsv(rows)], `labeled_d_all_${taskId}.csv`, {
-        type: "text/csv",
-      });
-      const upload = await uploadOutputFile(file, taskId);
-      if (upload.success && upload.filePath) {
-        await saveFinalInferenceResult(taskId, upload.filePath);
-        setFinalInferenceFile(upload.filePath);
-        window.dispatchEvent(new Event("tasks:updated"));
-      }
-    } catch (error) {
-      console.error("Failed to persist final inference output:", error);
-    }
-  };
-
   const handleRunFinalInference = async () => {
     if (!task?._id || finalInferencePhase === "running") return;
 
@@ -496,12 +474,17 @@ export const useAIAnnotationController = () => {
             return;
           }
           const rows = progress.rows ?? [];
+          if (!progress.outputFile) {
+            toast.error("Inference finished, but the labeled dataset could not be saved. Please retry.");
+            setFinalInferencePhase("error");
+            return;
+          }
           setFinalLabeledRows(rows);
+          setFinalInferenceFile(progress.outputFile);
+          window.dispatchEvent(new Event("tasks:updated"));
           setFinalInferencePhase("done");
           if (rows.length > 0) {
             downloadLabeledRows(rows, filename);
-            // Persist the labeled output on the server so it survives a reload.
-            void persistFinalInference(taskId, rows);
             toast.success("Inference complete — labeled dataset downloaded.");
           } else {
             toast.success("Inference complete.");

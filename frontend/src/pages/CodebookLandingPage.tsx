@@ -87,14 +87,14 @@ export default function CodebookLandingPage() {
                   <Text className={styles.walkthroughTitle}>1. Upload task bundle</Text>
                 </Group>
                 <Text className={styles.walkthroughText}>
-                  Upload `labeled_examples.csv`, `remaining_notes.csv`, `task.json`, and `labels.json`.
+                  Upload your unlabeled notes, task details, and label definitions. Then build your evaluation set by labeling sampled narratives and highlighting evidence.
                 </Text>
                 <div className={styles.mockPanel}>
                   <div className={styles.mockRow}>
-                    <span className={styles.fileChip}><IconFileText size={12} /> labeled_examples.csv</span>
+                    <span className={styles.fileChip}><IconFileText size={12} /> Highlight evidence</span>
                   </div>
                   <div className={styles.mockRow}>
-                    <span className={styles.fileChip}><IconFileText size={12} /> remaining_notes.csv</span>
+                    <span className={styles.fileChip}><IconFileText size={12} /> unlabeled_notes.csv</span>
                   </div>
                   <div className={styles.mockRow}>
                     <span className={styles.fileChip}><IconBraces size={12} /> task.json</span>

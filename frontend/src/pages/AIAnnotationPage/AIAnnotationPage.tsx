@@ -112,7 +112,7 @@ export default function AnnotationPage() {
       <div className={styles.orbOne} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)}>
       <Container fluid className={styles.hero}>
-        <StepTrackerBanner currentStep={controller.isCompleteStep ? 3 : 2} activeSteps={[controller.isCompleteStep ? 3 : 2]} onHelp={controller.handleHelp} />
+        <StepTrackerBanner evaluationFlow={Boolean(controller.task.evaluationBuild)} currentStep={(controller.isCompleteStep ? 3 : 2) + (controller.task.evaluationBuild ? 1 : 0)} onHelp={controller.handleHelp} />
         <Paper className={styles.taskHeader} radius="md">
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
             <div className={styles.taskInfo}>
@@ -251,7 +251,7 @@ export default function AnnotationPage() {
           mode={controller.introShowCheckbox ? "firstRun" : "help"}
           opened={isDemo ? false : controller.introOpen}
           onClose={controller.handleCloseIntro}
-          title="Step 2: AI annotation review"
+          title={`Step ${controller.task.evaluationBuild ? 3 : 2}: AI annotation review`}
           description="Review AI suggestions, mark them correct or incorrect, and add feedback to refine the live codebook. This step prepares the final guidance."
           storageKey="hideStep5Intro"
           showSecondaryAction={true}

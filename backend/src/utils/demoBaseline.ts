@@ -1,4 +1,5 @@
 import type { EvalLabelResults, EvalResults } from "@common/types/tasks";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 
 // A no-inference reference: predict the most common configured label for every row.
 export function createDemoBaseline(
@@ -9,7 +10,7 @@ export function createDemoBaseline(
 ): EvalResults | undefined {
   const samples = rows
     .filter((row) => String(row[textColumn] ?? "").trim())
-    .map((row) => String(row[labelColumn] ?? "").split(",").map((label) => label.trim()).filter(Boolean));
+    .map((row) => parseEvaluationLabels(row[labelColumn]));
   if (!samples.length || !labelNames.length) return undefined;
 
   const support = Object.fromEntries(labelNames.map((label) => [label, samples.filter((truth) => truth.includes(label)).length]));

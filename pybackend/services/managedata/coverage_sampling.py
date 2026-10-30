@@ -12,6 +12,9 @@ class CoverageBasedSampling:
         self.model = model.to(self.device)
 
     def sample(self, n: int = 150, text_col: str = "text_combined") -> pd.DataFrame:
+        n = min(max(0, n), len(self.rep_sample_df))
+        if n == 0:
+            return self.rep_sample_df.iloc[:0].copy()
         if self.rep_sample_df.empty:
             return self.rep_sample_df.sample(n=min(n, len(self.rep_sample_df)))
 
@@ -38,7 +41,7 @@ class CoverageBasedSampling:
         # Running max-similarity vector: max_sims[i] = highest similarity sample i
         # has to any candidate picked so far. Avoids recomputing the full matrix
         # each iteration — only one column of comparisons needed per new pick.
-        max_sims = cosine_similarity(all_embeddings, all_embeddings[[seed_idx]]).squeeze()
+        max_sims = cosine_similarity(all_embeddings, all_embeddings[[seed_idx]]).reshape(-1)
         max_sims[seed_idx] = float('inf')  # exclude seed from future selection
 
         # Step 2: iteratively add the most semantically distant remaining sample
@@ -50,7 +53,7 @@ class CoverageBasedSampling:
             picked.append(next_idx)
 
             # update running max against the newly added candidate
-            new_sims = cosine_similarity(all_embeddings, all_embeddings[[next_idx]]).squeeze()
+            new_sims = cosine_similarity(all_embeddings, all_embeddings[[next_idx]]).reshape(-1)
             max_sims = np.maximum(max_sims, new_sims)
             max_sims[next_idx] = float('inf')  # exclude from future selection
 

@@ -61,22 +61,24 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
   const latest = summary?.lastActivity;
   const visible = useMemo(
     () => records
-      .filter((record) => filter === "all" || record.label === filter)
+      .filter((record) => filter === "all" || (record.labels ?? (record.label ? [record.label] : [])).includes(filter))
       .sort((a, b) => {
         const delta = (a.timestamp?.getTime() ?? 0) - (b.timestamp?.getTime() ?? 0);
         return sort === "newest" ? -delta : delta;
       }),
     [filter, records, sort],
   );
-  const chartData: ActivityPoint[] = dated.flatMap((record, recordIndex) => {
-    const labelIndex = labels.findIndex((label) => label.key === record.label);
-    if (labelIndex < 0) return [];
-    const date = record.timestamp!.getTime();
-    return [{
-      date, occurredAt: date, row: labels.length - labelIndex - 1, recordIndex,
-      labelKey: labels[labelIndex].key, label: labels[labelIndex].label, count: 1,
-    }];
-  });
+  const chartData: ActivityPoint[] = dated.flatMap((record, recordIndex) =>
+    (record.labels ?? (record.label ? [record.label] : [])).flatMap((name) => {
+      const labelIndex = labels.findIndex((label) => label.key === name);
+      if (labelIndex < 0) return [];
+      const date = record.timestamp!.getTime();
+      return [{
+        date, occurredAt: date, row: labels.length - labelIndex - 1, recordIndex,
+        labelKey: labels[labelIndex].key, label: labels[labelIndex].label, count: 1,
+      }];
+    }),
+  );
   const visibleChartData = filter === "all" ? chartData : chartData.filter((point) => point.labelKey === filter);
   const plottedDates = visibleChartData.map((point) => point.date);
   const dateDomain = getDateDomain(plottedDates);
@@ -103,7 +105,7 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
     const lines = [
       "id,timestamp,label,text",
       ...records.map((record) =>
-        [record.id, record.timestamp?.toISOString() ?? "", record.label ?? "", record.text]
+        [record.id, record.timestamp?.toISOString() ?? "", (record.labels ?? (record.label ? [record.label] : [])).join("|"), record.text]
           .map(csvEscape)
           .join(","),
       ),
@@ -157,7 +159,7 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
         <div className="grid gap-3 md:grid-cols-2">
           <section className={insetClass}>
             <h3 className={titleClass}>Label Distribution</h3>
-            <LabelStrip counts={summary.labelCounts} labels={labels} total={summary.activityCount} />
+            <LabelStrip counts={summary.labelCounts} labels={labels} />
             <dl className="grid gap-2">
               {labels.map((label) => (
                 <div key={label.key} className="flex items-center justify-between gap-4 text-xs">
@@ -261,7 +263,7 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
           {visible.length ? (
             <ol className="mt-4 grid">
               {visible.map((record, index) => {
-                const label = labels.find((item) => item.key === record.label);
+                const recordLabels = (record.labels ?? (record.label ? [record.label] : [])).map((name) => labels.find((item) => item.key === name)).filter((item): item is AnalysisLabel => Boolean(item));
                 const isExpanded = expanded === index;
 
                 return (
@@ -269,9 +271,9 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
                     className="grid gap-3 border-b border-[#f0f1f3] py-4 last:border-b-0 sm:grid-cols-[148px_1fr]">
                     <time className="text-[13px] font-medium leading-5 tabular-nums">{formatDate(record.timestamp)}</time>
                     <div className="min-w-0">
-                      <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-5" style={{ color: label?.color ?? "var(--muted-foreground)" }}>
+                      <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-5" style={{ color: recordLabels[0]?.color ?? "var(--muted-foreground)" }}>
                         <span className="size-2 rounded-full bg-current" />
-                        {label?.label ?? "Label unavailable"}
+                        {recordLabels.length ? recordLabels.map((item) => item.label).join(", ") : "Prediction unavailable"}
                       </p>
                       <p className={`mt-1 pl-3.5 text-[13px] leading-5 text-[#666] ${isExpanded ? "" : "line-clamp-3"}`}>
                         {record.text || "No note text is available."}
@@ -304,11 +306,12 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
   );
 }
 
-function LabelStrip({ counts, labels, total }: { counts: Record<string, number>; labels: AnalysisLabel[]; total: number }) {
+function LabelStrip({ counts, labels }: { counts: Record<string, number>; labels: AnalysisLabel[] }) {
+  const assignments = Object.values(counts).reduce((sum, count) => sum + count, 0);
   return (
     <div className="flex h-[15px] w-full overflow-hidden rounded-sm bg-muted">
       {labels.map((label) => {
-        const value = total ? (counts[label.key] ?? 0) / total : 0;
+        const value = assignments ? (counts[label.key] ?? 0) / assignments : 0;
         return (
           <span
             key={label.key}

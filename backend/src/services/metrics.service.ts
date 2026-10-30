@@ -3,6 +3,7 @@ import path from "path";
 import { createHash, randomUUID } from "crypto";
 import axios from "axios";
 import { Response } from "express";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { AnnotationItem } from "@common/types/annotations";
 import {
   EvaluationSnapshot,
@@ -159,10 +160,7 @@ function getValLabelDistribution(
   const counts: Record<string, number> = {};
   for (const row of rows) {
     const raw = row[labelColumn] ?? row.task_label ?? row.taskLabel ?? "";
-    const labels = String(raw)
-      .split(",")
-      .map((label) => label.trim())
-      .filter(Boolean);
+    const labels = parseEvaluationLabels(raw);
     for (const label of labels) {
       counts[label] = (counts[label] || 0) + 1;
     }
@@ -761,11 +759,8 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
 
     const samples = valRows
       .map((row) => ({
-        text: getTextData(row, preferredTextCol),
-        ground_truth: String(row[labelColumn] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        text: task.evaluationBuild ? String(row.__evaluation_text ?? "") : getTextData(row, preferredTextCol),
+        ground_truth: parseEvaluationLabels(row[labelColumn]),
       }))
       .filter((s) => s.text.length > 0);
 

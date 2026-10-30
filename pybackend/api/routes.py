@@ -363,11 +363,11 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
             text = row_data.get(request.text_column, "")
             if not is_active():
                 _auto_label_progress[job_id]["completed"] += 1
-                return {**row_data, "generated_label": ""}
+                return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
             async with semaphore:
                 if not is_active():
                     _auto_label_progress[job_id]["completed"] += 1
-                    return {**row_data, "generated_label": ""}
+                    return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
                 try:
                     response = await asyncio.to_thread(
                         chat_service_obj.send_chat,
@@ -378,12 +378,14 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
                         text,
                         request.user_input,
                     )
-                    generated_label = "|".join(response["label"])
+                    generated_labels = response["label"]
+                    generated_label = "|".join(generated_labels)
                 except Exception as e:
                     print(f"[Auto Label] Sample inference failed: {e}")
                     generated_label = "ERROR"
+                    generated_labels = []
                 _auto_label_progress[job_id]["completed"] += 1
-                return {**row_data, "generated_label": generated_label}
+                return {**row_data, "generated_label": generated_label, "generated_labels_json": json.dumps(generated_labels)}
 
         results = await asyncio.gather(*[infer_one(r) for r in rows])
         _auto_label_results[job_id] = list(results)
@@ -465,3 +467,14 @@ async def run_sampling(request: EmbedDatasetRequest):
         return {"success": True, "message": "Sampling completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from services.managedata.evaluation_sampling import EvaluationSamplingRequest, EvaluationSampler
+
+
+@embedding_router.post("/evaluation-sample")
+async def sample_evaluation(request: EvaluationSamplingRequest):
+    try:
+        return await sampling_queue.submit(EvaluationSampler(request).run)
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(status_code=400, detail=str(error))

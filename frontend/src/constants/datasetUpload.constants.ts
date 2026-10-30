@@ -13,18 +13,21 @@ export const LABELS_TEMPLATE = JSON.stringify(
     labels: [
       {
         name: "positive",
+        requiresEvidence: true,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
       },
       {
         name: "negative",
+        requiresEvidence: true,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
       },
       {
         name: "neutral",
+        requiresEvidence: false,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
