@@ -414,7 +414,7 @@ export default function DatasetUploadPage() {
                     <Divider my={4} color={dividerColor}/>
                     <NumberInput
                       label="Codebook review budget"
-                      description="The maximum number of samples used for codebook development."
+                      description="Maximum guide examples to review. Label-targeted FAISS retrieval and coverage sampling are automatic."
                       value={config.coverageSampleSize}
                       min={1}
                       max={1000}

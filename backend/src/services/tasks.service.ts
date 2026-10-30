@@ -1095,6 +1095,7 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
           ? Number(req.body.coverage_n)
           : DEFAULT_COVERAGE_SAMPLES,
       use_representative_sampling:
+        req.body.use_representative_sampling === undefined ||
         String(req.body.use_representative_sampling).toLowerCase() === "true",
     };
 

@@ -166,7 +166,7 @@ export async function uploadTaskBundle(params: {
   );
   formData.append(
     "use_representative_sampling",
-    String(Boolean(params.useRepresentativeSampling)),
+    String(params.useRepresentativeSampling ?? true),
   );
 
   const { data } = await apiClient.post("/api/tasks/create", formData, {
