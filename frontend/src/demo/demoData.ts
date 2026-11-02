@@ -12,7 +12,7 @@ export const demoTask: Task = {
     { name: "neither", definition: "The note contains neither a health referral nor a substantive health discussion", keywords: ["transportation", "school", "housing", "paperwork"] },
   ],
   labelColumn: "label",
-  modelName: "claude-3-5-sonnet",
+  modelName: "qwen2.5:32b",
   columns: ["Notes_anonymized"],
   file: "mfp_sample_data_anon.csv",
   valFileName: "youth_support_validation.csv",
@@ -72,7 +72,7 @@ export const demoTask: Task = {
       codebook: ["Classify posts using the supplied label definitions."],
       codebookHash: "demo-baseline-codebook",
       evaluationKey: "demo-evaluation-v1",
-      modelName: "claude-3-5-sonnet",
+      modelName: "qwen2.5:32b",
       valFile: "youth_support_validation.csv",
       results: {
         predictionsFilename: "val_eval_predictions_demo_baseline.csv",

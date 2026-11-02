@@ -10,6 +10,15 @@ const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
 //Adding user authentication, making this a protected route
 router.use(authenticateToken);
 
+router.get("/models", async (_req: AuthRequest, res: Response) => {
+    try {
+        const { data } = await axios.get(`${ML_BASE_URL}/inference/models`);
+        res.json(data);
+    } catch (error: any) {
+        res.status(error.response?.status ?? 500).json({ success: false, message: "Could not load available models" });
+    }
+});
+
 router.post("/", async (req: AuthRequest, res: Response) => {
     try {
         const payload: InferenceRequest = req.body;
@@ -46,4 +55,4 @@ router.post("/rule-synthesis", async (req: AuthRequest, res: Response) => {
     }
 });
 
-export default router; 
+export default router;

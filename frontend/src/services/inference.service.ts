@@ -2,6 +2,16 @@ import { apiClient } from "../lib/apiClient";
 import { InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceSummary } from '@common/types/inference';
 import { AxiosError } from "axios";
 
+export interface ModelOption {
+  value: string;
+  label: string;
+}
+
+export async function getAvailableModels(): Promise<ModelOption[]> {
+  const { data } = await apiClient.get<ModelOption[]>("/api/inference/models");
+  return data;
+}
+
 export async function inference(
   payload: InferenceRequest
 ): Promise<InferenceResponse> {

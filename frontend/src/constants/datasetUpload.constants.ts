@@ -34,11 +34,3 @@ export const LABELS_TEMPLATE = JSON.stringify(
   null,
   2,
 );
-
-export const modelOptions = [
-  {value: "gemma3:1b", label: "Gemma3-1B"},
-  {value: "qwen3.5:2b", label: "Qwen3.5-2B"},
-  {value: "mistral:7b", label: "Mistral-7B"},
-  {value: "qwen:32b", label: "Qwen-32B"},
-  {value: "llama3.3:70b", label: "Llama3.3-70B"},
-];

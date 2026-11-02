@@ -33,8 +33,8 @@ import PageIntro, { usePageIntroTour } from "../components/common/PageIntro";
 import {
   LABELS_TEMPLATE,
   TASK_TEMPLATE,
-  modelOptions,
 } from "../constants/datasetUpload.constants";
+import { useModelOptions } from "../hooks/useModelOptions";
 import { toast } from "../lib/toast";
 import {
   completeAutoLabelTask,
@@ -54,7 +54,7 @@ interface AnnotationTaskConfig {
 }
 
 const defaultConfig: AnnotationTaskConfig = {
-  selectedModel: "qwen:32b",
+  selectedModel: "qwen2.5:32b",
   textColumn: "translated_text",
 };
 
@@ -228,12 +228,16 @@ export default function NewAnnotationTaskPage() {
   const navigate = useNavigate();
   const { colorScheme } = useMantineColorScheme();
   const isLight = colorScheme === "light";
+  const { options: modelOptions, error: modelOptionsError } = useModelOptions();
 
   const [unlabeledFile, setUnlabeledFile] = useState<File | null>(null);
   const [codebookFile, setCodebookFile] = useState<File | null>(null);
   const [taskJsonFile, setTaskJsonFile] = useState<File | null>(null);
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<AnnotationTaskConfig>(defaultConfig);
+  const availableModelOptions = taskId && config.selectedModel === "qwen:32b"
+    ? [...modelOptions, { value: "qwen:32b", label: "qwen:32b (existing task)" }]
+    : modelOptions;
   const [error, setError] = useState<string | null>(null);
 
   const [labelingPhase, setLabelingPhase] = useState<LabelingPhase>("idle");
@@ -337,6 +341,7 @@ export default function NewAnnotationTaskPage() {
       taskJsonFile &&
       labelsJsonFile &&
       config.selectedModel &&
+      availableModelOptions.some((model) => model.value === config.selectedModel) &&
       config.textColumn,
   );
 
@@ -373,6 +378,7 @@ export default function NewAnnotationTaskPage() {
       !taskJsonFile ||
       !labelsJsonFile ||
       !config.selectedModel ||
+      !availableModelOptions.some((model) => model.value === config.selectedModel) ||
       !config.textColumn
     ) {
       setError("Please provide all required files and task config fields.");
@@ -426,6 +432,7 @@ export default function NewAnnotationTaskPage() {
     config.selectedModel,
     config.textColumn,
     labelsJsonFile,
+    availableModelOptions,
     navigate,
     taskJsonFile,
     unlabeledFile,
@@ -521,11 +528,13 @@ export default function NewAnnotationTaskPage() {
                     <Divider my={4} color={dividerColor} />
                     <Select
                       label="Model"
-                      description="Choose the model to use for annotation."
-                      placeholder="Select a model…"
+                      description="Choose the exact model used for annotation."
+                      placeholder={modelOptionsError ? "Models unavailable" : "Loading models…"}
                       value={config.selectedModel}
                       onChange={(value) => setConfigField("selectedModel", value)}
-                      data={modelOptions}
+                      data={availableModelOptions}
+                      disabled={!availableModelOptions.length}
+                      error={modelOptionsError ? "Could not load models from the inference service. Refresh to retry." : undefined}
                       classNames={{
                         label: styles.configLabel,
                         description: styles.configDescription,

@@ -32,7 +32,7 @@ from models.embedding_schemas import EmbedDatasetRequest, EmbedDatasetResponse
 from models.rule_synthesis_schema import RuleSynthesisRequest, RuleSynthesisResponse
 #from services.embedding_service import EmbeddingService
 from services.anonymizer.service import anonymize_csv_bytes, get_config_defaults
-from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse
+from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse, SELECTABLE_MODEL_KEYS, registry
 from services.chat.chat_service import ChatService
 from models.prompt_templating_model import PromptTemplate
 from services.chat.rule_synthesis_service import RuleSynthesisService
@@ -101,6 +101,12 @@ async def get_anonymize_defaults():
         return JSONResponse(content={"success": True, "defaults": defaults})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading defaults: {str(e)}")
+
+
+@chat_router.get("/models")
+async def list_inference_models():
+    """Expose the resolved model IDs so the selector matches the active provider."""
+    return [{"value": key, "label": registry[key].model} for key in SELECTABLE_MODEL_KEYS]
 
 
 @chat_router.post("/", response_model=InferenceResponse)
