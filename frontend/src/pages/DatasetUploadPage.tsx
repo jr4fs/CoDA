@@ -24,7 +24,8 @@ import {useNavigate} from "react-router-dom";
 import StepTrackerBanner from "../components/StepTrackerBanner";
 import GuidedTour, {GuidedTourStep} from "../components/common/GuidedTour";
 import PageIntro, {usePageIntroTour} from "../components/common/PageIntro";
-import {LABELS_TEMPLATE, TASK_TEMPLATE, modelOptions} from "../constants/datasetUpload.constants";
+import {LABELS_TEMPLATE, TASK_TEMPLATE} from "../constants/datasetUpload.constants";
+import { useModelOptions } from "../hooks/useModelOptions";
 import {toast} from "../lib/toast";
 import {uploadTaskBundle} from "../services/tasks.service";
 import {downloadContent} from "../utils/downloadContent";
@@ -46,7 +47,7 @@ const DEFAULT_COVERAGE_SAMPLES =
   Number(import.meta.env.VITE_DEFAULT_COVERAGE_SAMPLES) || 15;
 
 const defaultUploadConfig: UploadConfig = {
-  selectedModel: "qwen:32b",
+  selectedModel: "qwen2.5:32b",
   textColumn: "translated_text",
   labelColumn: "Final Label",
   coverageSampleSize: DEFAULT_COVERAGE_SAMPLES,
@@ -161,6 +162,10 @@ export default function DatasetUploadPage() {
   const {colorScheme} = useMantineColorScheme();
   const isLight = colorScheme === "light";
   const { isDemo, tourOpen: demoTourOpen, setTourOpen: setDemoTourOpen } = useDemo();
+  const { options: liveModelOptions, error: modelOptionsError } = useModelOptions(isDemo);
+  const availableModelOptions = isDemo
+    ? [{ value: "qwen2.5:32b", label: "Qwen2.5-32B (simulated demo)" }]
+    : liveModelOptions;
 
   const [dValFile, setDValFile] = useState<File | null>(null);
   const [dAllFile, setDAllFile] = useState<File | null>(null);
@@ -195,7 +200,7 @@ export default function DatasetUploadPage() {
       setManualTaskDescription("Classify social media posts about pangolin conservation as positive, negative, or neutral toward conservation.");
       setConfig(prev => ({
         ...prev,
-        selectedModel: "claude-3-5-sonnet",
+        selectedModel: "qwen2.5:32b",
         textColumn: "translated_text",
         labelColumn: "Final Label",
       }));
@@ -221,7 +226,12 @@ export default function DatasetUploadPage() {
   const hasManualTaskDetails =
     manualTaskName.trim().length > 0 && manualTaskDescription.trim().length > 0;
   const hasTaskDetails = taskDetailsMode === "file" ? Boolean(taskJsonFile) : hasManualTaskDetails;
-  const isReady = Boolean(dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() && config.selectedModel && config.evaluationBatchSize && config.evaluationTarget && config.coverageSampleSize);
+  const isReady = Boolean(
+    dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() &&
+    config.selectedModel && config.evaluationBatchSize && config.evaluationTarget &&
+    config.coverageSampleSize &&
+    (isDemo || liveModelOptions.some((model) => model.value === config.selectedModel))
+  );
 
   const handleHelp = openHelpIntro;
 
@@ -252,7 +262,8 @@ export default function DatasetUploadPage() {
       !hasTaskDetails ||
       !labelsJsonFile ||
       !config.textColumn.trim() ||
-      !config.selectedModel
+      !config.selectedModel ||
+      (!isDemo && !liveModelOptions.some((model) => model.value === config.selectedModel))
     ) {
       setError(
           "Provide the unlabeled CSV, labels JSON, task details, text column, and preferred model before continuing.",
@@ -331,13 +342,14 @@ export default function DatasetUploadPage() {
     dAllFile,
     dValFile,
     hasTaskDetails,
+    isDemo,
     labelsJsonFile,
+    liveModelOptions,
     manualTaskDescription,
     manualTaskName,
     navigate,
     taskDetailsMode,
     taskJsonFile,
-    isDemo,
   ]);
 
   return (
@@ -436,11 +448,13 @@ export default function DatasetUploadPage() {
                     {taskDetailsMode === "manual" && <Select label="Labels per record" data={[{ value: "Multiclass", label: "One or more labels" }, { value: "Single-class", label: "Exactly one label" }]} value={config.taskType} onChange={value => setConfigField("taskType", value === "Single-class" ? "Single-class" : "Multiclass")} />}
                     <Select
                       label="Model"
-                      description="Choose the model to use for AI annotation."
-                      placeholder="Select a model…"
+                      description="Choose the exact model used for AI annotation."
+                      placeholder={modelOptionsError ? "Models unavailable" : "Loading models…"}
                       value={config.selectedModel}
                       onChange={(value) => setConfigField("selectedModel", value)}
-                      data={modelOptions}
+                      data={availableModelOptions}
+                      disabled={!isDemo && !liveModelOptions.length}
+                      error={modelOptionsError ? "Could not load models from the inference service. Refresh to retry." : undefined}
                       classNames={{
                         label: styles.configLabel,
                         description: styles.configDescription,
