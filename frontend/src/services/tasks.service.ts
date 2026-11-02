@@ -268,6 +268,10 @@ export async function startFinalInference(
   return data;
 }
 
+export async function cancelFinalInference(taskId: string): Promise<void> {
+  await apiClient.post("/api/tasks/final-inference/cancel", { taskId });
+}
+
 // Persist the final-inference output file path so it survives a reload.
 export async function saveFinalInferenceResult(
   taskId: string,

@@ -10,10 +10,11 @@ import {
   Text,
 } from "@mantine/core";
 import { useNavigate } from "react-router-dom";
+import { toast } from "../../../lib/toast";
 import { cancelValEval } from "../../../services/metrics.service";
 import { MetricsFiles } from "../types";
 
-type FinalInferencePhase = "idle" | "running" | "done" | "error";
+type FinalInferencePhase = "idle" | "running" | "done" | "error" | "cancelled";
 
 interface MetricsModalProps {
   opened: boolean;
@@ -31,6 +32,7 @@ interface MetricsModalProps {
   finalLabeledRowCount: number;
   finalInferenceHasResult: boolean;
   onRunFinalInference: () => void;
+  onCancelFinalInference: () => void;
   onDownloadFinalInference: () => void;
 }
 
@@ -50,6 +52,7 @@ export function MetricsModal({
   finalLabeledRowCount,
   finalInferenceHasResult,
   onRunFinalInference,
+  onCancelFinalInference,
   onDownloadFinalInference,
 }: MetricsModalProps) {
   const navigate = useNavigate();
@@ -86,9 +89,9 @@ export function MetricsModal({
 
         <Stack gap={6}>
           <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            Final metrics on held-out validation set
+            Final metrics on D_eval (held-out evaluation)
           </Text>
-          {valMetrics ? (
+          {valMetrics && !isRunningValEval ? (
             <Group grow gap="sm" align="stretch">
               {[
                 { label: "Precision", value: valMetrics.precision },
@@ -113,13 +116,26 @@ export function MetricsModal({
               ))}
             </Group>
           ) : isRunningValEval ? (
-            <Group gap="xs">
-              <Loader size="xs" />
-              <Text size="sm">
-                {valEvalProgress.total > 0
-                  ? `Computing on validation set… ${valEvalProgress.completed} / ${valEvalProgress.total}`
-                  : "Computing on validation set…"}
-              </Text>
+            <Group justify="space-between" gap="sm">
+              <Group gap="xs">
+                <Loader size="xs" />
+                <Text size="sm">
+                  {valEvalProgress.total > 0
+                    ? `Evaluating D_eval… ${valEvalProgress.completed} / ${valEvalProgress.total}`
+                    : "Evaluating D_eval…"}
+                </Text>
+              </Group>
+              <Button variant="subtle" color="red" size="sm" onClick={async () => {
+                if (!taskId) return;
+                try {
+                  await cancelValEval(taskId);
+                  navigate(`/dashboard/${taskId}`);
+                } catch {
+                  toast.error("Could not cancel D_eval evaluation. Please try again.");
+                }
+              }}>
+                Cancel D_eval
+              </Button>
             </Group>
           ) : (
             <Text size="sm" c="dimmed">
@@ -151,7 +167,7 @@ export function MetricsModal({
 
         <Divider my="xs" />
         <Text size="sm">
-          As a final step, run inference over your full dataset (D_all) using the
+          Run inference over your full dataset (D_all) using the
           latest codebook to extract a label for every row.
         </Text>
         <Button
@@ -167,11 +183,16 @@ export function MetricsModal({
         </Button>
         {finalInferencePhase === "running" && (
           <>
-            <Text size="xs">
-              {finalInferenceProgress.total > 0
-                ? `${finalInferenceProgress.completed} / ${finalInferenceProgress.total} rows labeled`
-                : "Starting…"}
-            </Text>
+            <Group justify="space-between" gap="sm">
+              <Text size="xs">
+                {finalInferenceProgress.total > 0
+                  ? `${finalInferenceProgress.completed} / ${finalInferenceProgress.total} rows labeled`
+                  : "Starting…"}
+              </Text>
+              <Button variant="subtle" color="red" size="sm" h={40} onClick={onCancelFinalInference}>
+                Cancel D_all inference
+              </Button>
+            </Group>
             <Progress
               value={
                 finalInferenceProgress.total > 0
@@ -188,6 +209,9 @@ export function MetricsModal({
             Inference failed. Please try again.
           </Text>
         )}
+        {finalInferencePhase === "cancelled" && (
+          <Text size="xs" c="dimmed">Inference cancelled. You can run it again on this task.</Text>
+        )}
         {finalInferencePhase === "done" && finalInferenceHasResult && (
           <Button fullWidth variant="light" onClick={onDownloadFinalInference}>
             {finalLabeledRowCount > 0
@@ -201,10 +225,7 @@ export function MetricsModal({
             fullWidth
             variant="filled"
             color="teal"
-            onClick={async () => {
-              try { await cancelValEval(taskId); } catch {}
-              navigate(`/dashboard/${taskId}`);
-            }}
+            onClick={() => navigate(`/dashboard/${taskId}`)}
           >
             Go to Dashboard
           </Button>

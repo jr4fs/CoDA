@@ -90,7 +90,7 @@ export interface Task {
   // Server path of the labeled full-dataset (d_all) output from the final
   // inference step, so it can be re-downloaded after a reload.
   finalInferenceFile?: string;
-  finalInferenceStatus?: "running" | "ready" | "error";
+  finalInferenceStatus?: "running" | "ready" | "error" | "cancelled";
   finalInferenceRunId?: string;
   createdAt: string; // ISO 8601 timestamp
   updatedAt?: string; // ISO 8601 timestamp
@@ -201,6 +201,7 @@ export interface AutoLabelProgressResponse {
   completed: number;
   total: number;
   done: boolean;
+  cancelled?: boolean;
   rows?: Array<Record<string, string>>;
   error?: string;
   outputFile?: string;

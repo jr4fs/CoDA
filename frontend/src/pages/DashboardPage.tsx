@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -20,6 +20,7 @@ import { getTaskAnnotations } from "@/services/annotations.service";
 import { fetchEvaluationBuilder } from "@/services/evaluationBuilder.service";
 import {
   downloadMetricsFile,
+  cancelValEval,
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
@@ -49,6 +50,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
+  const evaluationRunRef = useRef(0);
 
   const requestedTab = searchParams.get("tab");
   const activeTab = isDashboardTabId(requestedTab)
@@ -147,6 +149,7 @@ export default function DashboardPage() {
 
   const handleRunEvaluation = async () => {
     if (!taskId) return;
+    const runId = ++evaluationRunRef.current;
 
     setIsRunning(true);
     setProgress({ completed: 0, total: 0 });
@@ -167,6 +170,7 @@ export default function DashboardPage() {
     try {
       const result = await runValEvaluation(taskId, task?.codebook, "final");
       clearInterval(pollInterval);
+      if (runId !== evaluationRunRef.current) return;
 
       if (result.success && result.evalResults) {
         setTask((currentTask) =>
@@ -189,10 +193,23 @@ export default function DashboardPage() {
       }
     } catch (error) {
       clearInterval(pollInterval);
+      if (runId !== evaluationRunRef.current) return;
       const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
       toast.error(typeof message === "string" ? message : "Final evaluation could not finish. No results were saved.");
     } finally {
+      if (runId === evaluationRunRef.current) setIsRunning(false);
+    }
+  };
+
+  const handleCancelEvaluation = async () => {
+    if (!taskId) return;
+    try {
+      await cancelValEval(taskId);
+      evaluationRunRef.current += 1;
       setIsRunning(false);
+      toast.success("D_eval evaluation cancelled");
+    } catch {
+      toast.error("Could not cancel D_eval evaluation. Please try again.");
     }
   };
 
@@ -273,6 +290,7 @@ export default function DashboardPage() {
           summary={sessionSummary}
           isRunning={isRunning}
           onRunEvaluation={handleRunEvaluation}
+          onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
           onCreateTask={() => navigate("/new-codebook")}
         />
 
@@ -284,14 +302,15 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
               <span>
                 {progress.total > 0
-                  ? `${progress.completed} of ${progress.total} rows evaluated`
-                  : "Starting final evaluation…"}
+                  ? `D_eval: ${progress.completed} of ${progress.total} rows evaluated`
+                  : "Starting D_eval evaluation…"}
               </span>
-              {progress.total > 0 && (
-                <span className="font-dashboard text-foreground">
-                  {Math.round(progressPercent)}%
-                </span>
-              )}
+              <div className="flex items-center gap-4">
+                {progress.total > 0 && <span className="font-dashboard text-foreground">{Math.round(progressPercent)}%</span>}
+                <button type="button" onClick={handleCancelEvaluation} className="min-h-10 rounded-md px-2 text-destructive hover:bg-muted">
+                  Cancel D_eval
+                </button>
+              </div>
             </div>
             <div
               className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"

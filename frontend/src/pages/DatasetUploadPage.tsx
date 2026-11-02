@@ -47,7 +47,7 @@ const DEFAULT_COVERAGE_SAMPLES =
   Number(import.meta.env.VITE_DEFAULT_COVERAGE_SAMPLES) || 15;
 
 const defaultUploadConfig: UploadConfig = {
-  selectedModel: "qwen2.5:32b",
+  selectedModel: "qwen2.5:72b",
   textColumn: "translated_text",
   labelColumn: "Final Label",
   coverageSampleSize: DEFAULT_COVERAGE_SAMPLES,
@@ -175,6 +175,13 @@ export default function DatasetUploadPage() {
   const [manualTaskDescription, setManualTaskDescription] = useState("");
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<UploadConfig>(defaultUploadConfig);
+  useEffect(() => {
+    if (liveModelOptions.some((option) => option.value === "qwen2.5:32b")) {
+      setConfig((current) => current.selectedModel === defaultUploadConfig.selectedModel
+        ? { ...current, selectedModel: "qwen2.5:32b" }
+        : current);
+    }
+  }, [liveModelOptions]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);

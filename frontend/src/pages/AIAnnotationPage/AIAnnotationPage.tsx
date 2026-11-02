@@ -223,6 +223,7 @@ export default function AnnotationPage() {
           finalLabeledRowCount={controller.finalLabeledRows.length}
           finalInferenceHasResult={controller.finalInferenceHasResult}
           onRunFinalInference={controller.handleRunFinalInference}
+          onCancelFinalInference={controller.handleCancelFinalInference}
           onDownloadFinalInference={controller.handleDownloadFinalInference}
         />
 

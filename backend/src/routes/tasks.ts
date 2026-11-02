@@ -17,6 +17,7 @@ import {
   getAutoLabelProgress,
   completeAutoLabel,
   startFinalInference,
+  cancelFinalInference,
   markCodebookComplete,
   saveFinalInferenceResult,
 } from "../services/tasks.service";
@@ -107,6 +108,7 @@ router.patch("/auto-label/complete/:taskId", completeAutoLabel);
 // Run inference over d_all with the latest codebook (final codebook-dev step).
 // Progress is polled via the shared /auto-label/progress/:taskId endpoint.
 router.post("/final-inference", startFinalInference);
+router.post("/final-inference/cancel", cancelFinalInference);
 // Persist the final-inference output file path (so it survives a reload).
 router.post("/final-inference/save", saveFinalInferenceResult);
 

@@ -30,7 +30,7 @@ async function sources(task: Task, userId: string, taskId: string) {
   const rawFile = getUploadsPath(path.basename(rawName));
   try { await fs.access(rawFile); } catch { return null; }
   let predictionFile: string | null = null;
-  if (task.finalInferenceFile && task.finalInferenceStatus !== "running") {
+  if (task.finalInferenceFile && task.finalInferenceStatus === "ready") {
     const name = path.basename(task.finalInferenceFile);
     const prefix = `${Buffer.from(userId).toString("base64url")}-${taskId}-`;
     if (name.startsWith(prefix)) {

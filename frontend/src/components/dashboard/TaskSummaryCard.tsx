@@ -6,6 +6,7 @@ interface TaskSummaryCardProps {
   summary: SessionSummary | null;
   isRunning: boolean;
   onRunEvaluation: () => void;
+  onOpenFullInference: () => void;
   onCreateTask: () => void;
 }
 
@@ -14,6 +15,7 @@ export default function TaskSummaryCard({
   summary,
   isRunning,
   onRunEvaluation,
+  onOpenFullInference,
   onCreateTask,
 }: TaskSummaryCardProps) {
   const totalCodebookRules = task.codebook?.length ?? 0;
@@ -71,14 +73,23 @@ export default function TaskSummaryCard({
         </div>
 
         {/* Actions */}
-        <div className="flex flex-1 items-center justify-center gap-4">
+        <div className="flex flex-1 flex-wrap items-center justify-center gap-4">
           <button
             type="button"
             onClick={onRunEvaluation}
             disabled={isRunning}
             className="whitespace-nowrap rounded-md border-0 bg-[#319b58] px-4 py-2.5 text-xs font-medium leading-4 text-white transition-colors hover:bg-[#287f49] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRunning ? "Running..." : "Run final evaluation"}
+            {isRunning ? "Evaluating D_eval…" : "Evaluate D_eval"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenFullInference}
+            disabled={!task.codebookComplete}
+            className="whitespace-nowrap rounded-md border border-[#319b58] px-4 py-2.5 text-xs font-medium leading-4 text-[#319b58] transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Open D_all inference
           </button>
 
           <button

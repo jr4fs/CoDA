@@ -2,20 +2,22 @@ import os
 import unittest
 from unittest.mock import patch
 
-from models.ollama_adapter import SELECTABLE_MODEL_KEYS, _build_registry
+from models.ollama_adapter import SELECTABLE_MODEL_KEYS, _build_registry, selectable_model_keys
 
 
 class ModelMappingTests(unittest.TestCase):
-    def test_new_tasks_offer_only_five_model_families(self):
+    def test_new_tasks_offer_available_qwen_model_on_openrouter(self):
         self.assertEqual(
-            SELECTABLE_MODEL_KEYS,
-            ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen2.5:32b", "llama3.3:70b"],
+            selectable_model_keys("openrouter"),
+            ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen2.5:72b", "llama3.3:70b"],
         )
+        self.assertIn("qwen2.5:32b", SELECTABLE_MODEL_KEYS)
 
     def test_new_qwen_selection_preserves_legacy_on_ollama(self):
         with patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}):
             registry = _build_registry()
             self.assertEqual(registry["qwen2.5:32b"].model, "qwen2.5:32b")
+            self.assertEqual(registry["qwen2.5:72b"].model, "qwen2.5:72b")
             self.assertEqual(registry["qwen:32b"].model, "qwen:32b")
 
     def test_new_qwen_selection_preserves_legacy_on_openrouter(self):
@@ -25,6 +27,7 @@ class ModelMappingTests(unittest.TestCase):
                 registry["qwen2.5:32b"].model,
                 "qwen/qwen2.5-32b-instruct",
             )
+            self.assertEqual(registry["qwen2.5:72b"].model, "qwen/qwen-2.5-72b-instruct")
             self.assertEqual(registry["qwen:32b"].model, "qwen/qwen-2.5-72b-instruct")
 
 

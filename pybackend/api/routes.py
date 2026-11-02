@@ -32,7 +32,7 @@ from models.embedding_schemas import EmbedDatasetRequest, EmbedDatasetResponse
 from models.rule_synthesis_schema import RuleSynthesisRequest, RuleSynthesisResponse
 #from services.embedding_service import EmbeddingService
 from services.anonymizer.service import anonymize_csv_bytes, get_config_defaults
-from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse, SELECTABLE_MODEL_KEYS, registry
+from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse, registry, selectable_model_keys
 from services.chat.chat_service import ChatService
 from models.prompt_templating_model import PromptTemplate
 from services.chat.rule_synthesis_service import RuleSynthesisService
@@ -106,7 +106,7 @@ async def get_anonymize_defaults():
 @chat_router.get("/models")
 async def list_inference_models():
     """Expose the resolved model IDs so the selector matches the active provider."""
-    return [{"value": key, "label": registry[key].model} for key in SELECTABLE_MODEL_KEYS]
+    return [{"value": key, "label": registry[key].model} for key in selectable_model_keys(os.getenv("LLM_PROVIDER", "ollama").strip().lower())]
 
 
 @chat_router.post("/", response_model=InferenceResponse)
@@ -242,6 +242,8 @@ async def get_val_eval_progress(task_id: str):
 async def cancel_val_eval(task_id: str):
     """Signal any in-flight val-eval for this task to abort."""
     _eval_run_ids[task_id] = "__cancelled__"
+    if task_id in _eval_progress:
+        _eval_progress[task_id].update(done=True, cancelled=True)
     return {"cancelled": True}
 
 
@@ -325,6 +327,9 @@ async def get_auto_label_progress(job_id: str):
 async def cancel_auto_label(job_id: str):
     """Signal an in-flight auto-label job to abort."""
     _auto_label_run_ids[job_id] = "__cancelled__"
+    if job_id in _auto_label_progress:
+        _auto_label_progress[job_id].update(done=True, cancelled=True, error="Inference cancelled")
+    _auto_label_results.pop(job_id, None)
     return {"cancelled": True}
 
 
@@ -353,6 +358,8 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
 
         df = await asyncio.to_thread(pd.read_csv, csv_path, dtype=str, keep_default_na=False)
         rows = df.to_dict(orient="records")
+        if _auto_label_run_ids.get(job_id) != run_id:
+            return
         total = len(rows)
         _auto_label_progress[job_id]["total"] = total
 
@@ -368,11 +375,9 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
             row_data = {k: str(v) for k, v in row.items()}
             text = row_data.get(request.text_column, "")
             if not is_active():
-                _auto_label_progress[job_id]["completed"] += 1
                 return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
             async with semaphore:
                 if not is_active():
-                    _auto_label_progress[job_id]["completed"] += 1
                     return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
                 try:
                     response = await asyncio.to_thread(
@@ -390,14 +395,19 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
                     print(f"[Auto Label] Sample inference failed: {e}")
                     generated_label = "ERROR"
                     generated_labels = []
-                _auto_label_progress[job_id]["completed"] += 1
+                if is_active():
+                    _auto_label_progress[job_id]["completed"] += 1
                 return {**row_data, "generated_label": generated_label, "generated_labels_json": json.dumps(generated_labels)}
 
         results = await asyncio.gather(*[infer_one(r) for r in rows])
+        if not is_active():
+            return
         _auto_label_results[job_id] = list(results)
         _auto_label_progress[job_id]["done"] = True
         print(f"[Auto Label] Job {job_id} complete: {len(results)} rows labeled")
     except Exception as e:
+        if _auto_label_run_ids.get(job_id) != run_id:
+            return
         print(f"[Auto Label] Job {job_id} failed: {e}")
         _auto_label_progress[job_id]["done"] = True
         _auto_label_progress[job_id]["error"] = str(e)

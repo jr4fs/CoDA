@@ -1564,15 +1564,19 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
     const userInput = finalCodebook.join("\n") || null;
     const textColumn = task.columns?.[0] || "text";
     const runId = randomUUID();
-    await collection.updateOne(
-      { _id: task._id as any, userID },
-      { $set: { finalInferenceStatus: "running", finalInferenceRunId: runId, updatedAt: new Date().toISOString() } },
+    const claim = await collection.updateOne(
+      { _id: task._id as any, userID, finalInferenceStatus: { $ne: "running" } },
+      {
+        $set: { finalInferenceStatus: "running", finalInferenceRunId: runId, updatedAt: new Date().toISOString() },
+        $unset: { finalInferenceFile: "" },
+      },
     );
+    if (!claim.modifiedCount) {
+      return res.status(409).json({ success: false, message: "Full-dataset inference is already running" });
+    }
 
-    // Fire-and-forget: pybackend reads d_all from shared_uploads/ and runs the
-    // job in the background keyed by job_id === taskId.
-    void axios
-      .post(
+    // Wait for Python to accept the job before exposing Cancel.
+    await axios.post(
         `${ML_BASE_URL}/inference/auto-label`,
         {
           file_path: task.restFile,
@@ -1585,14 +1589,13 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
           job_id: taskId,
         },
         { timeout: 3_600_000 },
-      )
-      .then(() => watchFinalInference(taskId, userID, runId))
-      .catch(async (err: Error) => {
-        console.error("[startFinalInference] Python job error:", err.message);
+      ).then(() => { void watchFinalInference(taskId, userID, runId); })
+      .catch(async (error: Error) => {
         await collection.updateOne(
-          { _id: task._id as any, userID, finalInferenceRunId: runId },
+          { _id: task._id as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" },
           { $set: { finalInferenceStatus: "error", updatedAt: new Date().toISOString() } },
         );
+        throw error;
       });
 
     return res.status(200).json({ success: true, taskId });
@@ -1604,11 +1607,40 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
   }
 }
 
+export async function cancelFinalInference(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  const { taskId } = req.body as { taskId?: string };
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (!taskId || !ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Valid taskId is required" });
+
+  try {
+    const collection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await collection.findOne({ _id: new ObjectId(taskId) as any, userID });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+    if (task.finalInferenceStatus === "cancelled") return res.json({ success: true });
+    if (task.finalInferenceStatus !== "running" || !task.finalInferenceRunId) {
+      return res.status(409).json({ success: false, message: "No full-dataset inference is running" });
+    }
+
+    await axios.post(`${ML_BASE_URL}/inference/auto-label/cancel/${taskId}`, {}, { timeout: 5_000 });
+    const result = await collection.updateOne(
+      { _id: task._id as any, userID, finalInferenceRunId: task.finalInferenceRunId, finalInferenceStatus: { $in: ["running", "error"] } },
+      { $set: { finalInferenceStatus: "cancelled", updatedAt: new Date().toISOString() }, $unset: { finalInferenceFile: "" } },
+    );
+    if (!result.modifiedCount) {
+      return res.status(409).json({ success: false, message: "Inference finished before cancellation" });
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(502).json({ success: false, message: error.message || "Could not cancel full-dataset inference" });
+  }
+}
+
 async function persistFinalInferenceRows(taskId: string, userID: string, runId: string, rows: Array<Record<string, string>>) {
   const collection = getCollection<Task>(TASKS_COLLECTION);
-  const filter = { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId };
+  const filter = { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" as const };
   const current = await collection.findOne(filter);
-  if (!current || current.finalInferenceStatus === "ready") return current?.finalInferenceFile;
+  if (!current) return undefined;
   if (!rows.length) throw new Error("Final inference returned no records");
   ensureAnnotationOutputsDir();
   const filename = `${annotationOutputPrefix(userID, taskId)}labeled-d-all-${runId}.csv`;
@@ -1617,10 +1649,10 @@ async function persistFinalInferenceRows(taskId: string, userID: string, runId: 
   try {
     await fs.writeFile(temporary, Papa.unparse(rows), "utf8");
     await fs.rename(temporary, destination);
-    await collection.updateOne(filter, {
+    const saved = await collection.updateOne(filter, {
       $set: { finalInferenceFile: filename, finalInferenceStatus: "ready", updatedAt: new Date().toISOString() },
     });
-    return filename;
+    return saved.modifiedCount ? filename : undefined;
   } finally {
     await fs.unlink(temporary).catch(() => undefined);
   }
@@ -1655,6 +1687,8 @@ export async function getAutoLabelProgress(req: AuthRequest, res: Response) {
   try {
     const task = await getCollection<Task>(TASKS_COLLECTION).findOne({ _id: new ObjectId(taskId) as any, userID });
     if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+    if (task.finalInferenceStatus === "cancelled")
+      return res.json({ completed: 0, total: 0, done: true, cancelled: true });
     const { data } = await axios.get(
       `${ML_BASE_URL}/inference/auto-label/progress/${taskId}`,
       { timeout: 5_000 },

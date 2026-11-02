@@ -54,7 +54,7 @@ interface AnnotationTaskConfig {
 }
 
 const defaultConfig: AnnotationTaskConfig = {
-  selectedModel: "qwen2.5:32b",
+  selectedModel: "qwen2.5:72b",
   textColumn: "translated_text",
 };
 
@@ -235,6 +235,13 @@ export default function NewAnnotationTaskPage() {
   const [taskJsonFile, setTaskJsonFile] = useState<File | null>(null);
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<AnnotationTaskConfig>(defaultConfig);
+  useEffect(() => {
+    if (!taskId && modelOptions.some((option) => option.value === "qwen2.5:32b")) {
+      setConfig((current) => current.selectedModel === defaultConfig.selectedModel
+        ? { ...current, selectedModel: "qwen2.5:32b" }
+        : current);
+    }
+  }, [modelOptions, taskId]);
   const availableModelOptions = taskId && config.selectedModel === "qwen:32b"
     ? [...modelOptions, { value: "qwen:32b", label: "qwen:32b (existing task)" }]
     : modelOptions;

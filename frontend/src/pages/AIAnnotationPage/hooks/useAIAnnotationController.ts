@@ -1,7 +1,7 @@
 import { RuleSynthesisItem, RuleSynthesisRequest } from "@common/types/ruleSynthesis";
 import type { Task } from "@common/types/tasks";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAITaskData } from "../../../hooks/useAITaskData";
 import { toast } from "../../../lib/toast";
 import {
@@ -15,6 +15,7 @@ import {
 import { ruleSynthesis } from "../../../services/ruleSynthesis.service";
 import {
   downloadAnnotationOutputFile,
+  cancelFinalInference,
   exportCodebookSnapshot,
   getAutoLabelProgress,
   markCodebookComplete,
@@ -61,6 +62,7 @@ function computeMacroF1(
 
 export const useAIAnnotationController = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loading, task, guideAnnotations, refreshTaskData } = useAITaskData();
 
   const introState = useIntroState({ storageKey: INTRO_STORAGE_KEY });
@@ -91,6 +93,9 @@ export const useAIAnnotationController = () => {
   });
 
   const [metricsModalOpen, setMetricsModalOpen] = useState(false);
+  useEffect(() => {
+    if (task?.codebookComplete && searchParams.get("results") === "1") setMetricsModalOpen(true);
+  }, [task?.codebookComplete, searchParams]);
   const [metricsFiles, setMetricsFiles] = useState<MetricsFiles>({});
   const [reviewCompleted, setReviewCompleted] = useState(false);
   const [isRunningValEval, setIsRunningValEval] = useState(false);
@@ -108,7 +113,7 @@ export const useAIAnnotationController = () => {
 
   // Final step: run inference over d_all with the latest codebook.
   const [finalInferencePhase, setFinalInferencePhase] = useState<
-    "idle" | "running" | "done" | "error"
+    "idle" | "running" | "done" | "error" | "cancelled"
   >("idle");
   const [finalInferenceProgress, setFinalInferenceProgress] = useState({ completed: 0, total: 0 });
   const [finalLabeledRows, setFinalLabeledRows] = useState<Array<Record<string, string>>>([]);
@@ -438,28 +443,7 @@ export const useAIAnnotationController = () => {
     downloadContent(filename, rowsToCsv(rows), "text/csv");
   };
 
-  const handleRunFinalInference = async () => {
-    if (!task?._id || finalInferencePhase === "running") return;
-
-    const taskId = task._id;
-    const filename = `labeled_d_all_${task.name || taskId}.csv`;
-    setFinalInferencePhase("running");
-    setFinalInferenceProgress({ completed: 0, total: 0 });
-    setFinalLabeledRows([]);
-
-    try {
-      const res = await startFinalInference(taskId, codebookState.codebook);
-      if (!res.success) {
-        toast.error(res.message || "Failed to start inference");
-        setFinalInferencePhase("error");
-        return;
-      }
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to start inference");
-      setFinalInferencePhase("error");
-      return;
-    }
-
+  const pollFinalInference = (taskId: string, filename: string, downloadOnComplete: boolean) => {
     if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
     finalInferencePollRef.current = setInterval(async () => {
       try {
@@ -468,6 +452,10 @@ export const useAIAnnotationController = () => {
         if (progress.done) {
           if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
           finalInferencePollRef.current = null;
+          if (progress.cancelled) {
+            setFinalInferencePhase("cancelled");
+            return;
+          }
           if (progress.error) {
             toast.error(progress.error);
             setFinalInferencePhase("error");
@@ -483,7 +471,7 @@ export const useAIAnnotationController = () => {
           setFinalInferenceFile(progress.outputFile);
           window.dispatchEvent(new Event("tasks:updated"));
           setFinalInferencePhase("done");
-          if (rows.length > 0) {
+          if (downloadOnComplete && rows.length > 0) {
             downloadLabeledRows(rows, filename);
             toast.success("Inference complete — labeled dataset downloaded.");
           } else {
@@ -494,6 +482,57 @@ export const useAIAnnotationController = () => {
         // ignore transient polling errors
       }
     }, 1500);
+  };
+
+  useEffect(() => {
+    if (!task?._id) return;
+    if (task.finalInferenceStatus === "running") {
+      setFinalInferencePhase("running");
+      pollFinalInference(task._id, `labeled_d_all_${task.name || task._id}.csv`, false);
+    } else if (task.finalInferenceStatus === "cancelled") {
+      setFinalInferencePhase("cancelled");
+    }
+  }, [task?._id, task?.finalInferenceStatus]);
+
+  const handleRunFinalInference = async () => {
+    if (!task?._id || finalInferencePhase === "running") return;
+
+    const taskId = task._id;
+    const filename = `labeled_d_all_${task.name || taskId}.csv`;
+    setFinalInferencePhase("running");
+    setFinalInferenceProgress({ completed: 0, total: 0 });
+    setFinalLabeledRows([]);
+    setFinalInferenceFile(null);
+
+    try {
+      const res = await startFinalInference(taskId, codebookState.codebook);
+      if (!res.success) {
+        toast.error(res.message || "Failed to start inference");
+        setFinalInferencePhase("error");
+        return;
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to start inference");
+      setFinalInferencePhase("error");
+      return;
+    }
+
+    pollFinalInference(taskId, filename, true);
+  };
+
+  const handleCancelFinalInference = async () => {
+    if (!task?._id || !window.confirm("Cancel full-dataset inference? Completed predictions from this run will not be saved.")) return;
+    try {
+      await cancelFinalInference(task._id);
+      if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
+      finalInferencePollRef.current = null;
+      setFinalInferencePhase("cancelled");
+      setFinalInferenceFile(null);
+      toast.success("Full-dataset inference cancelled");
+      await refreshTaskData();
+    } catch {
+      toast.error("Could not cancel full-dataset inference. Please try again.");
+    }
   };
 
   const handleDownloadFinalInference = async () => {
@@ -628,6 +667,7 @@ export const useAIAnnotationController = () => {
     finalLabeledRows,
     finalInferenceHasResult: finalLabeledRows.length > 0 || finalInferenceFile !== null,
     handleRunFinalInference,
+    handleCancelFinalInference,
     handleDownloadFinalInference,
 
     isLoading: reviewState.isLoading,

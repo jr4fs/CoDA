@@ -178,6 +178,7 @@ MODEL_KEYS = [
     "qwen3.5:2b",
     "qwen:32b",
     "qwen2.5:32b",
+    "qwen2.5:72b",
     "llama3.3:70b",
 ]
 SELECTABLE_MODEL_KEYS = [key for key in MODEL_KEYS if key != "qwen:32b"]
@@ -192,8 +193,15 @@ DEFAULT_OPENROUTER_MODEL_MAP = {
     "qwen3.5:2b": "qwen/qwen-2.5-7b-instruct",
     "qwen:32b": "qwen/qwen-2.5-72b-instruct",
     "qwen2.5:32b": "qwen/qwen2.5-32b-instruct",
+    "qwen2.5:72b": "qwen/qwen-2.5-72b-instruct",
     "llama3.3:70b": "meta-llama/llama-3.3-70b-instruct",
 }
+
+
+def selectable_model_keys(provider: str) -> List[str]:
+    if provider == "openrouter":
+        return [key for key in SELECTABLE_MODEL_KEYS if key != "qwen2.5:32b"]
+    return SELECTABLE_MODEL_KEYS
 
 
 def _build_registry() -> Dict[str, Any]:
@@ -271,6 +279,9 @@ configs = {
         "temperature": 0.4,
     },
     "qwen2.5:32b": {
+        "temperature": 0.4,
+    },
+    "qwen2.5:72b": {
         "temperature": 0.4,
     },
     "llama3.3:70b": {

@@ -1024,8 +1024,12 @@ export async function cancelValEvaluation(req: AuthRequest, res: Response) {
 
   const { taskId } = req.body as { taskId?: string };
   if (!taskId) return res.status(400).json({ success: false, message: "taskId is required" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
 
   try {
+    const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+      .findOne({ _id: new ObjectId(taskId) as any, userID: userId });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
     const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
     await axios.post(`${ML_BASE_URL}/inference/val-eval/cancel/${taskId}`, {}, { timeout: 5_000 });
     return res.status(200).json({ success: true });
