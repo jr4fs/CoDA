@@ -12,6 +12,8 @@ class ModelMappingTests(unittest.TestCase):
             ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen2.5:72b", "llama3.3:70b"],
         )
         self.assertIn("qwen2.5:32b", SELECTABLE_MODEL_KEYS)
+        self.assertIn("qwen:32b", SELECTABLE_MODEL_KEYS)
+        self.assertIn("qwen:32b", selectable_model_keys("ollama"))
 
     def test_new_qwen_selection_preserves_legacy_on_ollama(self):
         with patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}):
