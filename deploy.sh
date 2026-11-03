@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
 #SBATCH --time=90:00:00
-#SBATCH --gres=gpu:rtxa6000:4
+#SBATCH --gres=gpu:rtxa6000:4        
 #SBATCH --output=fastapi-%j.out
 #SBATCH --error=fastapi-%j.err
 
@@ -16,13 +16,13 @@ module load gcc/13.3.0
 module load cuda/12.6.3
 module load cudnn/8.9.7.29-12-cuda
 
-export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 export NVM_DIR="$HOME/.nvm"
 source $NVM_DIR/nvm.sh
-nvm use 24.14.0
+nvm use 24.14.0 
 
 NGROK_DOMAIN=pony-earshot-jogger.ngrok-free.dev
 HOSTNAME=$(hostname)
