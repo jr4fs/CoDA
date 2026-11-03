@@ -53,6 +53,7 @@ Browser ──HTTP(S)──▶ Caddy ──/api/*──▶ Node/Express BFF ─�
 | Develop locally with hot reload | [docs/local-dev.md](./docs/local-dev.md) |
 | Run the full stack in Docker | [docs/deploy-docker.md](./docs/deploy-docker.md) |
 | Deploy to AWS (one script) | [docs/deploy-aws.md](./docs/deploy-aws.md) |
+| Run on CARC with Slurm | [docs/deploy-carc.md](./docs/deploy-carc.md) |
 
 All services read a single repo-root `.env` (`cp .env.example .env`). The sampling
 methodology is documented in [docs/sampling_methodology.md](./docs/sampling_methodology.md).
@@ -112,9 +113,8 @@ and `local` as shown above.
   backend-for-frontend (authentication, task management, file storage, ML proxy),
   and a Python/FastAPI ML service (embeddings, sampling, anonymization, LLM calls).
   Shared TypeScript types; MongoDB for persistence.
-- **Deployment (Docker + AWS).** Containerized with Docker Compose and provisioned
-  on AWS with Terraform via a single idempotent `deploy.sh` (EC2 + Elastic IP,
-  Caddy auto-HTTPS). The same stack runs locally with one Docker command.
+- **Deployment.** Docker Compose runs locally or on AWS, where Terraform provisions
+  EC2 and Caddy provides HTTPS. CARC uses a Slurm job to run the services directly.
 - **Open-source & reproducible.** Fully open-source and reproducible from a single
   repo-root `.env` plus one-command Docker or Terraform-driven deploys; seeded
   sampling and versioned, exportable codebooks make runs repeatable.
@@ -131,8 +131,8 @@ and `local` as shown above.
   `EMBEDDINGS_PROVIDER`, `DB_CONN_STRING`), with three target environments:
   - **Public AWS deployment** — MongoDB Atlas, OpenRouter (LLM), and OpenAI or
     Amazon Bedrock (embeddings), behind Caddy auto-HTTPS on a single EC2 VM.
-  - **Hosted on CARC** — the same containers run on the CARC research-computing
-    cluster for institutionally hosted compute and data.
+  - **Hosted on CARC** — a Slurm GPU job runs MongoDB, Ollama, FastAPI, Node, and
+    Vite on the allocated node, with an ngrok tunnel for access.
   - **Local with Ollama** — MongoDB in a container, LLM inference via a local
     Ollama server, and embeddings computed in-process (mpnet); no external API
     keys or data egress.
