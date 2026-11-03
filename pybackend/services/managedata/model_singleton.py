@@ -18,7 +18,7 @@ def get_device() -> str:
     global _device
     if _device is None:
         import torch  # lazy: heavy import, only needed for local mpnet
-        _device = "mps" if torch.mps.is_available() else "cpu"
+        _device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     return _device
 
 

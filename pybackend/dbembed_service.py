@@ -30,7 +30,7 @@ class DatasetEmbeddingService:
         self.id_col = id_col
         self.split_to_sentences = split_sent 
         self.model_name: str = "sentence-transformers/all-mpnet-base-v2" if model_name is None else model_name
-        self.device = "mps" if torch.mps.is_available() else "cpu" if device is None else device
+        self.device = device or ("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
 
         # Create combined text column
         self.df["text_combined"] = self.df[self.text_cols].fillna("").astype(str).agg(" ".join, axis=1).str.strip()

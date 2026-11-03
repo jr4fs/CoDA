@@ -17,7 +17,7 @@ class EmbedDatasetRequest(BaseModel):
     taskId: Optional[str] = None
     userId: Optional[str] = None
     coverage_n: Optional[int] = Field(None, ge=1)
-    use_representative_sampling: Optional[bool] = False
+    use_representative_sampling: Optional[bool] = True
 
 class EmbedDatasetResponse(BaseModel):
     success: bool

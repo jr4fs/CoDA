@@ -13,18 +13,21 @@ export const LABELS_TEMPLATE = JSON.stringify(
     labels: [
       {
         name: "positive",
+        requiresEvidence: true,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
       },
       {
         name: "negative",
+        requiresEvidence: true,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
       },
       {
         name: "neutral",
+        requiresEvidence: false,
         description: "INSERT DEFINITION",
         keywords: ["INSERT YOUR KEYWORDS"],
         guidelines: ["Any initial guidelines you have created for annotating this label"],
@@ -34,11 +37,3 @@ export const LABELS_TEMPLATE = JSON.stringify(
   null,
   2,
 );
-
-export const modelOptions = [
-  {value: "gemma3:1b", label: "Gemma3-1B"},
-  {value: "qwen3.5:2b", label: "Qwen3.5-2B"},
-  {value: "mistral:7b", label: "Mistral-7B"},
-  {value: "qwen:32b", label: "Qwen-32B"},
-  {value: "llama3.3:70b", label: "Llama3.3-70B"},
-];

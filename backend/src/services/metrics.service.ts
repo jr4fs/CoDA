@@ -3,6 +3,7 @@ import path from "path";
 import { createHash, randomUUID } from "crypto";
 import axios from "axios";
 import { Response } from "express";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { AnnotationItem } from "@common/types/annotations";
 import {
   EvaluationSnapshot,
@@ -159,10 +160,7 @@ function getValLabelDistribution(
   const counts: Record<string, number> = {};
   for (const row of rows) {
     const raw = row[labelColumn] ?? row.task_label ?? row.taskLabel ?? "";
-    const labels = String(raw)
-      .split(",")
-      .map((label) => label.trim())
-      .filter(Boolean);
+    const labels = parseEvaluationLabels(raw);
     for (const label of labels) {
       counts[label] = (counts[label] || 0) + 1;
     }
@@ -761,11 +759,8 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
 
     const samples = valRows
       .map((row) => ({
-        text: getTextData(row, preferredTextCol),
-        ground_truth: String(row[labelColumn] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        text: task.evaluationBuild ? String(row.__evaluation_text ?? "") : getTextData(row, preferredTextCol),
+        ground_truth: parseEvaluationLabels(row[labelColumn]),
       }))
       .filter((s) => s.text.length > 0);
 
@@ -1029,8 +1024,12 @@ export async function cancelValEvaluation(req: AuthRequest, res: Response) {
 
   const { taskId } = req.body as { taskId?: string };
   if (!taskId) return res.status(400).json({ success: false, message: "taskId is required" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
 
   try {
+    const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+      .findOne({ _id: new ObjectId(taskId) as any, userID: userId });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
     const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
     await axios.post(`${ML_BASE_URL}/inference/val-eval/cancel/${taskId}`, {}, { timeout: 5_000 });
     return res.status(200).json({ success: true });

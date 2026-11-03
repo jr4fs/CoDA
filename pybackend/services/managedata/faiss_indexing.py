@@ -53,7 +53,7 @@ class FAISSIndexing:
                 raise ValueError("One or more zero vectors found — cannot normalize for cosine similarity.")
             print("Step 5: Normalizing with FAISS...")
             # faiss.normalize_L2(vectors)
-            vectors = vectors / norms          # ← pure numpy, no FAISS/MPS conflict
+            vectors = vectors / norms          # ← pure numpy, no FAISS/MPS/CUDA conflict
             vectors = np.ascontiguousarray(vectors) 
             print("Step 6: Creating IndexFlatIP...")
             index = faiss.IndexFlatIP(dim)

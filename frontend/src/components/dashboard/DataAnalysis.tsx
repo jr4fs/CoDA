@@ -1,23 +1,22 @@
 import type { Task } from "@common/types/tasks";
-import { ArrowUpDown, Eye, ListFilter, Search } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { DataAnalysisResponse } from "@common/types/dataAnalysis";
+import { ArrowUpDown, Copy, Eye, ListFilter, Search } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Rectangle, XAxis, YAxis } from "recharts";
 
 import RecordAnalyticsDialog, { type AnalysisLabel } from "@/components/dashboard/RecordAnalyticsDialog";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import { getDataAnalysisData } from "@/services/tasks.service";
+import { toast } from "@/lib/toast";
+import { getDataAnalysisData, getDataAnalysisIdRecords } from "@/services/tasks.service";
 import type { NormalizedRecord } from "@/types/dashboard";
 import {
-  getDatasetOverview, getIdSummaries, getLabelDistribution, getLabelDistributionOverTime,
   type IdSummary, type LabelDistributionItem, type LabelDistributionOverTime,
 } from "@/utils/dashboard/dashboardMetrics";
-import { countMultiLabelRows, detectDatasetColumns, normalizeDataset } from "@/utils/dashboard/normalizeDataset";
 
 type LoadState =
   | { status: "loading" }
-  | { status: "pending" }
   | { status: "error" }
-  | { status: "ready"; rows: Record<string, string>[] };
+  | { status: "ready"; data: DataAnalysisResponse };
 type SortOption = "latest" | "oldest" | "notes" | "id";
 type ChartMode = "proportion" | "count";
 
@@ -36,90 +35,92 @@ const LABEL_COLORS: Record<string, string> = {
 
 export default function DataAnalysis({ task }: { task: Task }) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortOption>("latest");
+  const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailRecords, setDetailRecords] = useState<NormalizedRecord[]>([]);
 
   useEffect(() => {
     if (!task._id) return setState({ status: "error" });
     let cancelled = false;
-    setState({ status: "loading" });
-    void getDataAnalysisData(task._id)
-      .then((result) => {
-        if (cancelled) return;
-        setState(result.status === "pending" ? { status: "pending" } : { status: "ready", rows: result.rows });
-      })
-      .catch(() => !cancelled && setState({ status: "error" }));
+    const load = () => void getDataAnalysisData(task._id!, { search, sort, label: filter === "all" ? undefined : filter, page })
+      .then((data) => { if (!cancelled) setState({ status: "ready", data }); })
+      .catch(() => { if (!cancelled) setState({ status: "error" }); });
+    const timer = window.setTimeout(load, search ? 250 : 0);
+    const onUpdate = () => load();
+    window.addEventListener("tasks:updated", onUpdate);
+    const poll = window.setInterval(() => {
+      if (state.status === "ready" && state.data.predictionStatus !== "ready") load();
+    }, 5000);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      window.removeEventListener("tasks:updated", onUpdate);
     };
-  }, [task._id]);
+  }, [task._id, search, sort, filter, page, state.status === "ready" ? state.data.predictionStatus : "loading"]);
+
+  useEffect(() => {
+    if (!selectedId || !task._id) return setDetailRecords([]);
+    let cancelled = false;
+    setDetailRecords([]);
+    void getDataAnalysisIdRecords(task._id, selectedId)
+      .then((records) => {
+        if (!cancelled) setDetailRecords(records.map((record) => ({
+          id: record.id, text: record.text, labels: record.labels,
+          label: record.labels[0], timestamp: record.timestamp ? new Date(record.timestamp) : undefined, raw: {},
+        })));
+      })
+      .catch(() => { if (!cancelled) setDetailRecords([]); });
+    return () => { cancelled = true; };
+  }, [task._id, selectedId]);
 
   if (state.status === "loading") return <Status title="Loading data analysis…" loading />;
-  if (state.status === "pending") return <Status title="Data analysis is not available yet." description="Upload a labeled evaluation set to populate these charts." />;
-  if (state.status === "error") return <Status title="Data analysis could not be loaded." description="The evaluation set may be unavailable. Refresh the page or check the uploaded file." />;
-  if (!state.rows.length) return <Status title="The evaluation set is empty." description="No records are available to summarize." />;
-  return <AnalysisView task={task} rows={state.rows} />;
+  if (state.status === "error") return <Status title="Data analysis could not be loaded." description="Refresh the page or check the uploaded full dataset." />;
+  if (state.data.status === "unavailable") return <Status title="The full dataset is unavailable." description="This task has no accessible D_all upload." />;
+  if (!state.data.overview.totalEntries) return <Status title="The full dataset is empty." description="No records are available to summarize." />;
+  const labels = getAnalysisLabels(task.labels);
+  return <ReadyAnalysis
+    data={state.data} labels={labels} search={search} sort={sort} filter={filter} page={page}
+    onSearch={(value) => { setPage(1); setSearch(value); }}
+    onSort={(value) => { setPage(1); setSort(value); }}
+    onFilter={(value) => { setPage(1); setFilter(value); }}
+    onPage={setPage} selectedId={selectedId} onSelectId={setSelectedId} detailRecords={detailRecords}
+  />;
 }
 
-function AnalysisView({ task, rows }: { task: Task; rows: Record<string, string>[] }) {
-  const detected = useMemo(() => detectDatasetColumns(rows), [rows]);
-  const labels = useMemo<AnalysisLabel[]>(
-    () => getAnalysisLabels(task.labels),
-    [task.labels],
-  );
-  const config = useMemo(() => detected ? {
-    ...detected,
-    textColumn: task.columns.find((column) => column in rows[0]) ?? detected.textColumn,
-    labelColumn: task.labelColumn in rows[0] ? task.labelColumn : "taskLabel" in rows[0] ? "taskLabel" : detected.labelColumn,
-  } : undefined, [detected, rows, task.columns, task.labelColumn]);
-  const multiLabelCount = config?.labelColumn ? countMultiLabelRows(rows, config.labelColumn) : 0;
-  const records = useMemo(() => {
-    if (!config) return [];
-    const known = new Map(labels.map((label) => [canonical(label.key), label.key]));
-    return normalizeDataset(rows, config).map((record) => ({
-      ...record,
-      label: record.label ? known.get(canonical(record.label)) : undefined,
-    }));
-  }, [config, labels, rows]);
-
-  if (!config) return <Status title="Evaluation columns could not be detected." description="Check the uploaded CSV columns." />;
-  if (!config.labelColumn || !labels.length) return <Status title="Labels could not be matched." description="The evaluation set needs labels matching the task labels." />;
-  return <ReadyAnalysis records={records} labels={labels} hasTimestamp={Boolean(config.timestampColumn)} multiLabelCount={multiLabelCount} />;
-}
-
-function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { records: NormalizedRecord[]; labels: AnalysisLabel[]; hasTimestamp: boolean; multiLabelCount: number }) {
+function ReadyAnalysis({ data, labels, search, sort, filter, page, onSearch, onSort, onFilter, onPage, selectedId, onSelectId, detailRecords }: {
+  data: DataAnalysisResponse;
+  labels: AnalysisLabel[];
+  search: string;
+  sort: SortOption;
+  filter: string;
+  page: number;
+  onSearch: (value: string) => void;
+  onSort: (value: SortOption) => void;
+  onFilter: (value: string) => void;
+  onPage: (value: number) => void;
+  selectedId: string | null;
+  onSelectId: (value: string | null) => void;
+  detailRecords: NormalizedRecord[];
+}) {
   const [mode, setMode] = useState<ChartMode>("proportion");
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("latest");
-  const [filter, setFilter] = useState("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const overview = useMemo(() => getDatasetOverview(records), [records]);
-  const distribution = useMemo(() => getLabelDistribution(records), [records]);
-  const timeData = useMemo(() => getLabelDistributionOverTime(records), [records]);
-  const summaries = useMemo(() => getIdSummaries(records), [records]);
-  const listedIds = useMemo(() => summaries.filter((item) => item.id.trim()), [summaries]);
+  const overview = data.overview;
+  const distribution = data.distribution;
+  const timeData = data.overTime;
+  const visible: IdSummary[] = data.ids.map((item) => ({ ...item, lastActivity: item.lastActivity ? new Date(item.lastActivity) : undefined }));
   const selectedLabel = labels.find((label) => label.key === filter);
   const overallShare = distribution.find((item) => item.label === filter)?.proportion ?? 0;
-  const visible = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return listedIds
-      .filter((item) => !query || item.id.toLowerCase().includes(query))
-      .filter((item) => {
-        if (filter === "all") return true;
-        const labeledCount = Object.values(item.labelCounts).reduce((sum, count) => sum + count, 0);
-        return labeledCount > 0 && (item.labelCounts[filter] ?? 0) / labeledCount > overallShare;
-      })
-      .sort((a, b) => compare(a, b, sort));
-  }, [filter, listedIds, overallShare, search, sort]);
   const selectedIndex = visible.findIndex((item) => item.id === selectedId);
   const selected = selectedIndex < 0 ? null : visible[selectedIndex];
-  const missingIds = records.filter((record) => !record.id.trim()).length;
-  const labeled = records.filter((record) => record.label).length;
-  const timeRepresented = records.filter((record) => record.label && record.timestamp).length;
   const hasIds = overview.uniqueIds > 0;
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
       <section className={`${CARD} min-w-0 flex flex-col gap-5 md:flex-row md:items-center md:justify-between`}>
-        <Heading title="Evaluation Set Overview" description="High-level statistics from the uploaded labeled evaluation set" />
+        <Heading title="Full Dataset Overview" description="All records in the original D_all upload" />
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-8">
           <Metric label="Total Entries" value={overview.totalEntries} />
           <Metric label="Total Unique IDs" value={hasIds ? overview.uniqueIds : "—"} />
@@ -132,7 +133,7 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <Heading
             title="Label Distribution Over Time"
-            description={`Number of entries by label at each time point · ${timeRepresented.toLocaleString()} dated entries`}
+            description={`Predicted entries by label at each time point · ${data.datedClassifiedCount.toLocaleString()} dated entries`}
           />
           <div className="flex h-7 w-fit shrink-0 items-center rounded-lg border border-border bg-muted p-0.5" aria-label="Chart value mode">
             {(["proportion", "count"] as const).map((value) => (
@@ -148,40 +149,40 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
             ))}
           </div>
         </div>
-        {hasTimestamp && timeData.length ? (
-          <TimeChart data={timeData} labels={labels} mode={mode} />
+        {data.predictionStatus === "ready" && data.hasTimestamp && timeData.length ? (
+          <TimeChart data={timeData} labels={labels} mode={mode} multiLabel={data.multiLabelCount > 0} />
         ) : (
-          <ChartEmpty>No usable timestamp column was detected for time-based analysis.</ChartEmpty>
+          <ChartEmpty>{data.predictionStatus !== "ready" ? "Run final-codebook inference over D_all to see predicted label trends." : "No usable timestamp column was detected for time-based analysis."}</ChartEmpty>
         )}
       </Card>
       <Card>
-        <Heading title="Label Distribution" description={`Value counts and percentages · ${labeled.toLocaleString()} of ${records.length.toLocaleString()} recognized`} />
-        {multiLabelCount > 0 && <p className="mt-2 text-xs leading-5 text-[#667085]">
-          {multiLabelCount.toLocaleString()} {multiLabelCount === 1 ? "entry contains" : "entries contain"} multiple labels. These single-label charts exclude them; evaluation metrics still count each listed label.
+        <Heading title="Predicted Label Distribution" description={`Predictions across D_all · ${data.classifiedCount.toLocaleString()} of ${overview.totalEntries.toLocaleString()} records classified`} />
+        {data.multiLabelCount > 0 && <p className="mt-2 text-xs leading-5 text-[#667085]">
+          {data.multiLabelCount.toLocaleString()} {data.multiLabelCount === 1 ? "entry has" : "entries have"} multiple labels. Each label is counted once per record, so percentages may add to more than 100%.
         </p>}
-        {labeled < records.length && <p className="mt-2 text-xs leading-5 text-[#667085]">
-          {(records.length - labeled).toLocaleString()} {records.length - labeled === 1 ? "entry has" : "entries have"} a missing or unrecognized label and {records.length - labeled === 1 ? "is" : "are"} excluded from label charts.
+        {data.unclassifiedCount > 0 && data.predictionStatus === "ready" && <p className="mt-2 text-xs leading-5 text-[#667085]">
+          {data.unclassifiedCount.toLocaleString()} records have a missing, failed, or unrecognized prediction and are excluded from label percentages.
         </p>}
-        {distribution.length ? (
+        {data.predictionStatus === "ready" && distribution.length ? (
           <OverallChart data={distribution} labels={labels} />
         ) : (
-          <ChartEmpty>No recognized labels are available.</ChartEmpty>
+          <ChartEmpty>{data.predictionStatus === "error" ? "The latest full-dataset inference failed or produced an incomplete output." : data.predictionStatus === "pending" ? "Run final-codebook inference over D_all to populate these charts." : "No recognized predictions are available."}</ChartEmpty>
         )}
       </Card>
     </div>
 
-    {!hasIds && <section className={CARD}><Heading title="Record histories unavailable" description="The evaluation set has no usable ID column, so entries cannot be grouped into histories." /></section>}
+    {!hasIds && <section className={CARD}><Heading title="Record histories unavailable" description="D_all has no usable ID column, so entries cannot be grouped into histories." /></section>}
     {hasIds && <section className={`${CARD} p-4 sm:p-6`}>
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_112px_124px]">
         <label className="relative block">
           <span className="sr-only">Search by ID</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => setSearch(event.target.value)} />
+          <input type="search" value={search} placeholder="Search by ID…" className={inputClass + " w-full pl-9"} onChange={(event) => onSearch(event.target.value)} />
         </label>
         <label className="relative">
           <span className="sr-only">Sort records</span>
           <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => setSort(event.target.value as SortOption)}>
+          <select value={sort} className={selectClass + " w-full pl-8"} onChange={(event) => onSort(event.target.value as SortOption)}>
             <option value="latest">Sort By</option>
             <option value="oldest">Oldest activity</option>
             <option value="notes">Most notes</option>
@@ -191,19 +192,19 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
         <label className="relative">
           <span className="sr-only">Filter by label</span>
           <ListFilter className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <select value={filter} className={selectClass + " w-full pl-8"} onChange={(event) => setFilter(event.target.value)}>
+          <select value={filter} disabled={data.predictionStatus !== "ready"} className={selectClass + " w-full pl-8"} onChange={(event) => onFilter(event.target.value)}>
             <option value="all">Filter</option>
             {labels.map((label) => <option key={label.key} value={label.key}>More {label.label}</option>)}
           </select>
         </label>
       </div>
       <p className="mt-3 text-xs text-muted-foreground" aria-live="polite">
-        Showing {visible.length.toLocaleString()} of {listedIds.length.toLocaleString()} IDs{selectedLabel ? ` with above-average ${selectedLabel.label} share (${Math.round(overallShare * 100)}% overall)` : ""}.
+        Showing {visible.length.toLocaleString()} of {data.totalIds.toLocaleString()} IDs{selectedLabel ? ` with above-average ${selectedLabel.label} prevalence (${Math.round(overallShare * 100)}% overall)` : ""}.
       </p>
-      {missingIds > 0 && <p className="mt-3 text-xs text-muted-foreground">{missingIds.toLocaleString()} entries without an ID remain in evaluation totals but not the record list.</p>}
+      {overview.missingIds > 0 && <p className="mt-3 text-xs text-muted-foreground">{overview.missingIds.toLocaleString()} entries without an ID remain in D_all totals but not the record list.</p>}
       <div className="mt-5 overflow-x-auto">
         <table className="w-full min-w-[820px] table-fixed text-left text-xs">
-          <caption className="sr-only">Per-ID label distribution and recent activity</caption>
+          <caption className="sr-only">Per-ID predicted label distribution and recent activity in D_all</caption>
           <colgroup>
             <col className="w-[14%]" />
             <col />
@@ -223,12 +224,30 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
           <tbody>
             {visible.length ? visible.map((summary) => (
               <tr key={summary.id} className="h-12 align-middle">
-                <td className="overflow-hidden pr-6 font-regular tabular-nums whitespace-nowrap text-[hsl(0,0%,40%)]">{formatRecordId(summary.id)}</td>
-                <td className="pr-8"><DistributionBar summary={summary} labels={labels} /></td>
+                <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="min-w-0 flex-1 truncate select-text" title={summary.id}>{summary.id}</span>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Copy full ID ${summary.id}`}
+                      title="Copy full ID"
+                      onClick={() => {
+                        if (!navigator.clipboard?.writeText) return toast.error("Clipboard is unavailable");
+                        void navigator.clipboard.writeText(summary.id)
+                          .then(() => toast.success("Full ID copied"))
+                          .catch(() => toast.error("Could not copy ID"));
+                      }}
+                    >
+                      <Copy className="size-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                </td>
+                <td className="pr-8">{data.predictionStatus === "ready" ? <DistributionBar summary={summary} labels={labels} /> : <span className="text-xs text-muted-foreground">Awaiting inference</span>}</td>
                 <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{summary.activityCount.toLocaleString()}</td>
                 <td className="pr-6 font-regular tabular-nums text-[hsl(0,0%,40%)]">{formatDate(summary.lastActivity)}</td>
                 <td>
-                  <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-md text-[#707b8f] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelectedId(summary.id)}>
+                  <button type="button" className="inline-flex min-h-10 items-center gap-1.5 rounded-md text-[#707b8f] hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => onSelectId(summary.id)}>
                     <Eye className="size-4" />View
                   </button>
                 </td>
@@ -239,22 +258,27 @@ function ReadyAnalysis({ records, labels, hasTimestamp, multiLabelCount }: { rec
           </tbody>
         </table>
       </div>
+      {data.totalIds > data.pageSize && <div className="mt-4 flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)} className="min-h-9 px-2 disabled:opacity-40">Previous</button>
+        <span>Page {page} of {Math.ceil(data.totalIds / data.pageSize)}</span>
+        <button type="button" disabled={page * data.pageSize >= data.totalIds} onClick={() => onPage(page + 1)} className="min-h-9 px-2 disabled:opacity-40">Next</button>
+      </div>}
     </section>}
       <RecordAnalyticsDialog
         open={Boolean(selected)}
         summary={selected}
-        records={selectedId ? records.filter((record) => record.id === selectedId) : []}
+        records={detailRecords}
         labels={labels}
         previousId={selectedIndex > 0 ? visible[selectedIndex - 1]?.id : undefined}
         nextId={visible[selectedIndex + 1]?.id}
-        onSelectId={setSelectedId}
-        onOpenChange={(open) => !open && setSelectedId(null)}
+        onSelectId={onSelectId}
+        onOpenChange={(open) => !open && onSelectId(null)}
       />
     </div>
   );
 }
 
-function TimeChart({ data, labels, mode }: { data: LabelDistributionOverTime[]; labels: AnalysisLabel[]; mode: ChartMode }) {
+function TimeChart({ data, labels, mode, multiLabel }: { data: LabelDistributionOverTime[]; labels: AnalysisLabel[]; mode: ChartMode; multiLabel: boolean }) {
   const config = Object.fromEntries(
     labels.map((label, index) => [`label${index}`, { label: label.label, color: label.color }]),
   ) satisfies ChartConfig;
@@ -297,7 +321,7 @@ function TimeChart({ data, labels, mode }: { data: LabelDistributionOverTime[]; 
             <Bar
               key={label.key}
               dataKey={`label${index}`}
-              stackId="labels"
+              stackId={multiLabel ? undefined : "labels"}
               fill={`var(--color-label${index})`}
               maxBarSize={34}
               stroke="white"
@@ -378,15 +402,15 @@ function OverallChart({ data, labels }: { data: LabelDistributionItem[]; labels:
 }
 
 function DistributionBar({ summary, labels }: { summary: IdSummary; labels: AnalysisLabel[] }) {
-  const total = summary.activityCount;
+  const assignments = Object.values(summary.labelCounts).reduce((sum, count) => sum + count, 0);
   const accessibleLabel = labels.map((label) => {
-    const percentage = total ? Math.round(((summary.labelCounts[label.key] ?? 0) / total) * 100) : 0;
+    const percentage = assignments ? Math.round(((summary.labelCounts[label.key] ?? 0) / assignments) * 100) : 0;
     return `${label.label} ${percentage}%`;
   }).join(", ");
   return (
-    <div className="flex h-6 overflow-hidden rounded-md bg-muted" role="img" aria-label={`Label distribution for ID ${summary.id}: ${accessibleLabel}`}>
+    <div className="flex h-6 overflow-hidden rounded-md bg-muted" role="img" aria-label={`Share of label assignments for ID ${summary.id}: ${accessibleLabel}`}>
       {labels.map((label) => {
-        const value = total ? (summary.labelCounts[label.key] ?? 0) / total : 0;
+        const value = assignments ? (summary.labelCounts[label.key] ?? 0) / assignments : 0;
         return (
           <span
             key={label.key}
@@ -462,15 +486,6 @@ function Status({ title, description, loading }: { title: string; description?: 
   );
 }
 
-function compare(a: IdSummary, b: IdSummary, sort: SortOption) {
-  const at = a.lastActivity?.getTime() ?? 0;
-  const bt = b.lastActivity?.getTime() ?? 0;
-  if (sort === "latest") return bt - at;
-  if (sort === "oldest") return at - bt;
-  if (sort === "notes") return b.activityCount - a.activityCount;
-  return a.id.localeCompare(b.id, undefined, { numeric: true });
-}
-function formatRecordId(id: string) { return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id; }
 function canonical(value: string) { return value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " "); }
 function displayLabel(value: string) { return canonical(value).replace(/\b\w/g, (letter) => letter.toUpperCase()); }
 function formatDate(date?: Date) {

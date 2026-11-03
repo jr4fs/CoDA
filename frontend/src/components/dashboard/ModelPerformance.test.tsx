@@ -86,7 +86,7 @@ describe("ModelPerformance", () => {
     const task = fullTask();
     const html = render(<ModelPerformance task={{ ...task, demoBaseline: task.evalResults }} annotations={[]} />);
 
-    expect(html).toContain("Demo reference predicts the most common label");
+    expect(html).not.toContain("Demo reference predicts the most common label");
     expect(html).toContain("Demo reference F1");
     expect(html).not.toContain("Error Reduction");
   });

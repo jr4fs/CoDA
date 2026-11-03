@@ -18,6 +18,7 @@ x-data-volumes: &data-volumes
   - ${DATA_DIR:-./data}/guide_datasets:/app/guide_datasets
   - ${DATA_DIR:-./data}/generated_codebooks:/app/generated_codebooks
   - ${DATA_DIR:-./data}/metrics:/app/metrics
+  - ${DATA_DIR:-./data}/annotation_outputs:/app/annotation_outputs
 
 services:
   pybackend:

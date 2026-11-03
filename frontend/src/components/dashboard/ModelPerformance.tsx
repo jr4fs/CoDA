@@ -69,9 +69,6 @@ export default function ModelPerformance({
       {!task.evalResults && <p className="text-xs leading-5 text-[#667085]" role="status">
         Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on the evaluation set only.
       </p>}
-      {demoBaseline && <p className="text-xs leading-5 text-[#667085]" role="note">
-        Demo reference predicts the most common label in the uploaded evaluation set for every sample. No model inference was run; comparisons are illustrative, not measured codebook improvement.
-      </p>}
       {!baseline && <p className="text-xs leading-5 text-[#667085]" role="status">
         {baselineRecorded
           ? task.evalResults

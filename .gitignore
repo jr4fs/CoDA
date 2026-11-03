@@ -20,12 +20,27 @@ frontend/dist
 .context
 AGENTS.md
 .idea
+
+bin/mongod
+bin/mongosh
+lib/
+
+# Deploy job artifacts and runtime junk
+*.log
+*.out
+*.err
+.ipynb_checkpoints/
+ollama_models/
+bin/bin/
+bin/ngrok
+
 temp
 temp_a
 
-# Local docker-compose data dir (DATA_DIR=./data) and browser-test artifacts
+# Local docker-compose data dir and browser-test artifacts
 /data/
 .playwright-mcp/
+
 # Terraform
 deploy/terraform/.terraform/
 deploy/terraform/*.tfstate
@@ -35,6 +50,6 @@ deploy/terraform/*.tfplan
 deploy/terraform/*.plan
 deploy/terraform/tf.plan
 
-# Deployment secrets/config (single untracked source of truth)
+# Deployment secrets/config
 deploy/config.env
 deploy/.generated.env

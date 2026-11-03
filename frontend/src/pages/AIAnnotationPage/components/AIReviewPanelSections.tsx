@@ -11,6 +11,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { IconCheck, IconInfoCircle, IconX } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 import { AIAssisted } from "../types";
 import styles from "../AIAnnotationPage.module.css";
 
@@ -47,7 +48,7 @@ export function BatchProgressSection({
   actualBatchSize,
   currentIndex,
   totalSamples,
-}: SectionProps & {
+}: Partial<SectionProps> & {
   currentBatchProgress: number;
   actualBatchSize: number;
   currentIndex: number;
@@ -75,8 +76,12 @@ export function SampleTextSection({
   borderStrong: ____,
   mutedColor: _____,
   isLoading: ______,
-}: SectionProps & {
+  children,
+  expanded = false,
+}: Partial<SectionProps> & {
   currentSampleText: string;
+  children?: ReactNode;
+  expanded?: boolean;
 }) {
   return (
     <Paper
@@ -84,9 +89,9 @@ export function SampleTextSection({
       p="sm"
       radius="md"
       style={{ border: `1px solid ${borderColor}` }}
-      className={styles.sampleBox}
+      className={expanded ? styles.sampleBoxExpanded : styles.sampleBox}
     >
-      <div className={styles.samplePreviewText}>{currentSampleText}</div>
+      {children ?? <div className={styles.samplePreviewText}>{currentSampleText}</div>}
     </Paper>
   );
 }
