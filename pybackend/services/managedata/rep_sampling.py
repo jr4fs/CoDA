@@ -1,7 +1,6 @@
 import pandas as pd
-import torch
-from sentence_transformers import SentenceTransformer
 from .embed_dataset import DatasetEmbedding
+from .sampling_utils import apply_candidate_cap
 from .faiss_indexing import FAISSIndexing
 from .label_sampling import LabelSampling
 from models.embedding_schemas import EmbedDatasetRequest
@@ -17,6 +16,8 @@ class RepresentativeSampling:
         # dataset embedding step (creating vectors of the text samples)
         print(self.request.file_path)
         print(self.df.columns)
+        # Cap the candidate pool before embedding — no-op unless SAMPLING_CANDIDATE_CAP is set.
+        self.df = apply_candidate_cap(self.df)
         dbembed_service_obj = DatasetEmbedding(
             d_all=self.df,
             text_cols=self.request.text_col,
@@ -47,7 +48,6 @@ class RepresentativeSampling:
             labels=self.request.labels,
             index=index,
             model=sentence_model,
-            device="cuda" if torch.cuda.is_available() else "cpu",
         )
 
         # representative sampple of all labels

@@ -1,23 +1,23 @@
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-from typing import List
-import torch
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 class CoverageBasedSampling:
-    def __init__(self, df: pd.DataFrame, model: SentenceTransformer):
+    def __init__(self, df: pd.DataFrame, model: "SentenceTransformer"):
         self.rep_sample_df = df  # D_guide
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = model.to(self.device)
+        # Model already carries its device (local mpnet) or is an API stub.
+        self.model = model
 
     def sample(self, n: int = 150, text_col: str = "text_combined") -> pd.DataFrame:
         n = min(max(0, n), len(self.rep_sample_df))
         if n == 0:
             return self.rep_sample_df.iloc[:0].copy()
-        if self.rep_sample_df.empty:
-            return self.rep_sample_df.sample(n=min(n, len(self.rep_sample_df)))
-
         texts = self.rep_sample_df[text_col].tolist()
 
         # Encode all texts in one pass — one vector per text, no sentence splitting.
@@ -28,8 +28,7 @@ class CoverageBasedSampling:
             texts,
             convert_to_numpy=True,
             batch_size=64,
-            device=self.device,
-        )  # shape: (N, 768)
+        )  # shape: (N, dim)
 
         # Step 1: seed with the most peripheral sample (farthest from the centroid)
         # so greedy selection fans out from the most semantically outlying point

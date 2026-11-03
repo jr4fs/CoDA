@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
-#SBATCH --gres=gpu:1         
+#SBATCH --gres=gpu:1
 #SBATCH --output=fastapi-%j.out
 #SBATCH --error=fastapi-%j.err
 
@@ -16,7 +16,7 @@ module load gcc/13.3.0
 module load cuda/12.6.3
 module load cudnn/8.9.7.29-12-cuda
 
-export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK 
+export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 

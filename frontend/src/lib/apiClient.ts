@@ -2,8 +2,14 @@ import axios from "axios";
 import { store } from "../store/store";
 import { clearUser } from "../store/userSlice";
 
+// In a same-origin production deploy (frontend + API served behind one domain)
+// leave VITE_API_URL unset: an empty base makes requests relative to the page
+// origin (e.g. "/api/..."), so no domain needs to be baked into the build.
+// CARC's Vite server proxies API calls on the same origin through the tunnel.
+const apiBaseUrl = import.meta.env.VITE_API_URL ?? "";
+
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "",
+  baseURL: apiBaseUrl,
   headers: {
     "Content-Type": "application/json",
   },
@@ -26,9 +32,14 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error?.response?.status === 401) {
-      store.dispatch(clearUser());
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
+      // The public /demo runs on MSW-mocked data; never bounce it to /login even
+      // if some request slips through to the real backend.
+      const inDemo = window.location.pathname.startsWith("/demo");
+      if (!inDemo) {
+        store.dispatch(clearUser());
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);
