@@ -1,0 +1,7 @@
+{
+  "labels": [
+    { "name": "Legal", "description": "Interaction with a legal professional", "keywords": [], "requiresEvidence": true },
+    { "name": "Health", "description": "Interaction with a healthcare professional", "keywords": ["doctor"], "requiresEvidence": true },
+    { "name": "Neither", "description": "No professional interaction described", "keywords": [], "requiresEvidence": false }
+  ]
+}

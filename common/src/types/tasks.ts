@@ -3,6 +3,18 @@ export interface LabelItem {
   definition: string;
   keywords: string[];
   guidelines?: string;
+  requiresEvidence?: boolean;
+}
+
+export interface EvalLabelResults {
+  precision: number;
+  recall: number;
+  f1: number;
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+  support: number;
 }
 
 export interface EvalResults {
@@ -10,12 +22,29 @@ export interface EvalResults {
   macroF1: number;
   macroPrecision?: number;
   macroRecall?: number;
+  microF1?: number;
+  wrongPredictions?: number;
+  perLabel?: Record<string, EvalLabelResults>;
   accuracy: number;
   numSamples: number;
   completedAt: string;
+  evaluationKey?: string;
+}
+
+export type EvaluationStage = "baseline" | "checkpoint" | "final";
+
+export interface EvaluationSnapshot {
+  stage: EvaluationStage;
+  codebook: string[];
+  codebookHash: string;
+  evaluationKey: string;
+  modelName: string;
+  valFile: string;
+  results: EvalResults;
 }
 
 export interface Task {
+  evaluationBuild?: import("./evaluationBuilder").EvaluationBuild;
   _id?: string; // MongoDB ObjectId as string
   name: string;
   description: string;
@@ -37,9 +66,16 @@ export interface Task {
   file: string; // filename stored in /backend/uploads
   outputFile?: string; // server path of the auto-labeled output CSV
   inputFileName?: string; // original CSV filename from the user's disk
+  valFileName?: string; // original evaluation CSV filename
   restFile?: string;
   valFile?: string;
   evalResults?: EvalResults;
+  demoBaseline?: EvalResults; // Majority-label reference from the uploaded labeled CSV; no model inference.
+  evaluationHistory?: EvaluationSnapshot[];
+  baselineStatus?: "pending" | "running" | "ready" | "failed";
+  baselineEvaluationKey?: string;
+  baselineStartedAt?: string;
+  baselineRunId?: string;
   // Codebook-development review finished (via last batch commit or Exit). Once
   // true the codebook + sample review are locked read-only.
   codebookComplete?: boolean;
@@ -54,6 +90,8 @@ export interface Task {
   // Server path of the labeled full-dataset (d_all) output from the final
   // inference step, so it can be re-downloaded after a reload.
   finalInferenceFile?: string;
+  finalInferenceStatus?: "running" | "ready" | "error" | "cancelled";
+  finalInferenceRunId?: string;
   createdAt: string; // ISO 8601 timestamp
   updatedAt?: string; // ISO 8601 timestamp
 }
@@ -163,6 +201,8 @@ export interface AutoLabelProgressResponse {
   completed: number;
   total: number;
   done: boolean;
+  cancelled?: boolean;
   rows?: Array<Record<string, string>>;
   error?: string;
+  outputFile?: string;
 }

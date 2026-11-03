@@ -72,7 +72,7 @@ def install_dependencies(python_path):
     print(f"Installing dependencies from {REQUIREMENTS_PATH}...")
     try:
         subprocess.check_call(
-            [str(python_path), "-m", "pip", "install", "-r", str(REQUIREMENTS_PATH)]
+            [str(python_path), "-m", "pip", "install", "-r", str(REQUIREMENTS_PATH), "--no-cache"]
         )
         print("Dependencies installed successfully.")
         return True

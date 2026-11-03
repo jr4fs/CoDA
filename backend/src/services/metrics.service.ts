@@ -1,21 +1,27 @@
 import fs from "fs";
 import path from "path";
+import { createHash, randomUUID } from "crypto";
 import axios from "axios";
 import { Response } from "express";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { AnnotationItem } from "@common/types/annotations";
-import { Task } from "@common/types/tasks";
+import {
+  EvaluationSnapshot,
+  EvaluationStage,
+  Task,
+} from "@common/types/tasks";
 import { getCollection } from "./database.service";
 import { ObjectId } from "mongodb";
 import { AuthRequest } from "./tasks.service";
 import { ensureMetricsDir, METRICS_DIR } from "../utils/metrics";
 import Papa from "papaparse";
 import fsAsync from "fs/promises";
-import axios from "axios";
 
 const ANNOTATION_COLLECTION =
   process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails";
 
 const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
+const METRICS_FILENAME_PATTERN = /^(?:val_eval_predictions|sample_metrics|metadata_metrics|batch_metrics|val_eval)_(.+)_\d{4}-\d{2}-\d{2}T\d{9}Z\.csv$/;
 
 /**
  * Fetch the system prompt templates from pybackend (the single source of truth)
@@ -154,10 +160,7 @@ function getValLabelDistribution(
   const counts: Record<string, number> = {};
   for (const row of rows) {
     const raw = row[labelColumn] ?? row.task_label ?? row.taskLabel ?? "";
-    const labels = String(raw)
-      .split(",")
-      .map((label) => label.trim())
-      .filter(Boolean);
+    const labels = parseEvaluationLabels(raw);
     for (const label of labels) {
       counts[label] = (counts[label] || 0) + 1;
     }
@@ -628,7 +631,15 @@ const VAL_EVAL_PREDICTIONS_HEADERS = [
 
 export async function runValEvaluation(req: AuthRequest, res: Response) {
   const userId = req.user?.userId;
-  const { taskId, codebook: bodyCodebook } = req.body as { taskId?: string; codebook?: string[] };
+  const {
+    taskId,
+    codebook: bodyCodebook,
+    stage = "checkpoint",
+  } = req.body as {
+    taskId?: string;
+    codebook?: string[];
+    stage?: EvaluationStage;
+  };
 
   if (!userId) {
     return res.status(401).json({ success: false, message: "Unauthorized - user not authenticated" });
@@ -636,7 +647,11 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
   if (!taskId) {
     return res.status(400).json({ success: false, message: "taskId is required" });
   }
+  if (!["baseline", "checkpoint", "final"].includes(stage)) {
+    return res.status(400).json({ success: false, message: "Invalid evaluation stage" });
+  }
 
+  let baselineRunId: string | undefined;
   try {
     const taskCollection = getCollection<Task>(
       process.env.TASKS_COLLECTION_NAME || "TaskDetails",
@@ -656,17 +671,96 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const valPath = path.join(projectRoot, "val_datasets", task.valFile);
     const valText = await fsAsync.readFile(valPath, "utf-8");
     const valRows = parseCsvText(valText);
+    const evaluationKey = createHash("sha256")
+      .update(
+        JSON.stringify({
+          valData: valText,
+          modelName: task.modelName,
+          labels: task.labels,
+          description: task.description,
+          type: task.type,
+        }),
+      )
+      .digest("hex");
+    const evaluationCodebook = Array.isArray(bodyCodebook)
+      ? [...bodyCodebook]
+      : [...(task.codebook ?? [])];
+
+    if (stage === "baseline") {
+      const existingBaseline = task.evaluationHistory?.find(
+        (snapshot) =>
+          snapshot.stage === "baseline" &&
+          snapshot.evaluationKey === evaluationKey,
+      );
+      if (existingBaseline) {
+        if (task.baselineStatus !== "ready") {
+          await taskCollection.updateOne(
+            { _id: taskQueryId as any, userID: userId, baselineStatus: { $ne: "running" } },
+            { $set: { baselineStatus: "ready", baselineEvaluationKey: evaluationKey } },
+          );
+        }
+        return res.status(200).json({
+          success: true,
+          evalResults: existingBaseline.results,
+          evaluationSnapshot: existingBaseline,
+          alreadyExists: true,
+        });
+      }
+
+      const reviewedGuideSample = await getCollection<AnnotationItem>(
+        ANNOTATION_COLLECTION,
+      ).findOne({
+        taskId,
+        createdBy: userId,
+        source: "guide",
+        "aiAnnotation.isCorrect": { $in: [true, false] },
+      });
+      if (reviewedGuideSample) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "A true baseline cannot be created after guide review has started.",
+        });
+      }
+      baselineRunId = randomUUID();
+      const staleBefore = new Date(Date.now() - 65 * 60 * 1000).toISOString();
+      const claim = await taskCollection.updateOne(
+        {
+          _id: taskQueryId as any, userID: userId,
+          $or: [
+            { baselineStatus: { $ne: "running" } },
+            { baselineStartedAt: { $lt: staleBefore } },
+            { baselineStartedAt: { $exists: false } },
+          ],
+        },
+        { $set: {
+          baselineStatus: "running", baselineEvaluationKey: evaluationKey,
+          baselineStartedAt: new Date().toISOString(), baselineRunId,
+        } },
+      );
+      if (!claim.modifiedCount) {
+        return res.status(202).json({ success: true, inProgress: true, evaluationKey });
+      }
+      const claimedTask = await taskCollection.findOne({ _id: taskQueryId as any, userID: userId });
+      const completedBaseline = claimedTask?.evaluationHistory?.find(
+        (snapshot) => snapshot.stage === "baseline" && snapshot.evaluationKey === evaluationKey,
+      );
+      if (completedBaseline) {
+        await taskCollection.updateOne(
+          { _id: taskQueryId as any, userID: userId, baselineRunId },
+          { $set: { baselineStatus: "ready" } },
+        );
+        return res.status(200).json({ success: true, evalResults: completedBaseline.results, evaluationSnapshot: completedBaseline, alreadyExists: true });
+      }
+    }
 
     const labelColumn = task.labelColumn || "Final Label";
     const preferredTextCol = task.columns?.[0];
 
     const samples = valRows
       .map((row) => ({
-        text: getTextData(row, preferredTextCol),
-        ground_truth: String(row[labelColumn] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        text: task.evaluationBuild ? String(row.__evaluation_text ?? "") : getTextData(row, preferredTextCol),
+        ground_truth: parseEvaluationLabels(row[labelColumn]),
       }))
       .filter((s) => s.text.length > 0);
 
@@ -678,7 +772,7 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
         labels: task.labels,
         task_definition: task.description,
         model_name: task.modelName,
-        user_input: (Array.isArray(bodyCodebook) ? bodyCodebook : task.codebook)?.join("\n") || null,
+        user_input: evaluationCodebook.join("\n") || null,
         task_type: task.type || "annotation",
         task_id: taskId,
       },
@@ -713,11 +807,34 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const fp: Record<string, number> = {};
     const tn: Record<string, number> = {};
     const fn: Record<string, number> = {};
+    const perLabel: Record<
+      string,
+      {
+        precision: number;
+        recall: number;
+        f1: number;
+        tp: number;
+        fp: number;
+        tn: number;
+        fn: number;
+        support: number;
+      }
+    > = {};
     for (const label of labelNames) {
       tp[label] = metrics.perLabel[label]?.tp ?? 0;
       fp[label] = metrics.perLabel[label]?.fp ?? 0;
       tn[label] = metrics.perLabel[label]?.tn ?? 0;
       fn[label] = metrics.perLabel[label]?.fn ?? 0;
+      perLabel[label] = {
+        precision: metrics.precision[label] ?? 0,
+        recall: metrics.recall[label] ?? 0,
+        f1: metrics.f1[label] ?? 0,
+        tp: tp[label],
+        fp: fp[label],
+        tn: tn[label],
+        fn: fn[label],
+        support: tp[label] + fn[label],
+      };
     }
 
     ensureMetricsDir();
@@ -728,7 +845,7 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
     const row = {
       task_id: taskId,
       model_name: task.modelName ?? "",
-      codebook_snapshot: toJson(task.codebook ?? []),
+      codebook_snapshot: toJson(evaluationCodebook),
       val_file: task.valFile,
       num_samples: samples.length,
       accuracy,
@@ -776,14 +893,51 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       macroF1: metrics.macroF1,
       macroPrecision,
       macroRecall,
+      microF1: metrics.microF1,
+      wrongPredictions: samples.length - exactMatches,
+      perLabel,
       accuracy,
       numSamples: samples.length,
       completedAt: new Date().toISOString(),
+      evaluationKey,
     };
-    await taskCollection.updateOne(
-      { _id: taskQueryId as any, userID: userId },
-      { $set: { evalResults } },
-    );
+    const evaluationSnapshot: EvaluationSnapshot = {
+      stage,
+      codebook: evaluationCodebook,
+      codebookHash: createHash("sha256")
+        .update(JSON.stringify(evaluationCodebook))
+        .digest("hex"),
+      evaluationKey,
+      modelName: task.modelName ?? "",
+      valFile: task.valFile,
+      results: evalResults,
+    };
+    if (stage === "baseline") {
+      const saved = await taskCollection.updateOne(
+        {
+          _id: taskQueryId as any,
+          userID: userId,
+          baselineRunId,
+          evaluationHistory: {
+            $not: {
+              $elemMatch: { stage: "baseline", evaluationKey },
+            },
+          },
+        },
+        { $push: { evaluationHistory: evaluationSnapshot }, $set: { baselineStatus: "ready" } },
+      );
+      if (!saved.modifiedCount) {
+        return res.status(409).json({ success: false, message: "The initial evaluation was superseded. Retry before reviewing." });
+      }
+    } else {
+      await taskCollection.updateOne(
+        { _id: taskQueryId as any, userID: userId },
+        {
+          $set: { evalResults },
+          $push: { evaluationHistory: evaluationSnapshot },
+        },
+      );
+    }
 
     return res.status(200).json({
       success: true,
@@ -792,14 +946,74 @@ export async function runValEvaluation(req: AuthRequest, res: Response) {
       macroF1: metrics.macroF1,
       macroPrecision,
       macroRecall,
+      microF1: metrics.microF1,
+      wrongPredictions: samples.length - exactMatches,
+      perLabel,
       accuracy,
       evalResults,
+      evaluationSnapshot,
     });
   } catch (error: any) {
+    if (stage === "baseline" && userId && taskId && baselineRunId) {
+      const taskQueryId = ObjectId.isValid(taskId) ? new ObjectId(taskId) : taskId;
+      await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+        .updateOne({ _id: taskQueryId as any, userID: userId, baselineRunId }, { $set: { baselineStatus: "failed" } })
+        .catch(() => {});
+    }
     console.error("Error running val evaluation:", error);
+    const upstreamDetail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+    const upstreamStatus = axios.isAxiosError(error) ? error.response?.status : undefined;
+    return res.status(upstreamStatus === 409 ? 409 : 500).json({
+      success: false,
+      message: typeof upstreamDetail === "string"
+        ? upstreamDetail
+        : "Final evaluation could not finish. No results were saved; check the model service logs before retrying.",
+    });
+  }
+}
+
+export async function getModelPerformance(req: AuthRequest, res: Response) {
+  const userId = req.user?.userId;
+  const { taskId } = req.params;
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  if (!taskId) {
+    return res.status(400).json({ success: false, message: "taskId is required" });
+  }
+
+  try {
+    const taskCollection = getCollection<Task>(
+      process.env.TASKS_COLLECTION_NAME || "TaskDetails",
+    );
+    const taskQueryId: ObjectId | string = ObjectId.isValid(taskId)
+      ? new ObjectId(taskId)
+      : taskId;
+    const task = await taskCollection.findOne({
+      _id: taskQueryId as any,
+      userID: userId,
+    });
+
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found" });
+    }
+
+    const snapshots = task.evaluationHistory ?? [];
+    return res.status(200).json({
+      success: true,
+      snapshots,
+      baseline: [...snapshots]
+        .reverse()
+        .find((snapshot) => snapshot.stage === "baseline"),
+      final: [...snapshots]
+        .reverse()
+        .find((snapshot) => snapshot.stage === "final"),
+    });
+  } catch (error: any) {
     return res.status(500).json({
       success: false,
-      message: error.message || "Failed to run val evaluation",
+      message: error.message || "Failed to load model performance",
     });
   }
 }
@@ -810,8 +1024,12 @@ export async function cancelValEvaluation(req: AuthRequest, res: Response) {
 
   const { taskId } = req.body as { taskId?: string };
   if (!taskId) return res.status(400).json({ success: false, message: "taskId is required" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
 
   try {
+    const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+      .findOne({ _id: new ObjectId(taskId) as any, userID: userId });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
     const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
     await axios.post(`${ML_BASE_URL}/inference/val-eval/cancel/${taskId}`, {}, { timeout: 5_000 });
     return res.status(200).json({ success: true });
@@ -859,13 +1077,26 @@ export async function downloadMetricsFile(req: AuthRequest, res: Response) {
 
   try {
     const safeName = path.basename(filename);
+    const taskId = METRICS_FILENAME_PATTERN.exec(safeName)?.[1];
+    if (!taskId || safeName !== filename) {
+      return res.status(404).json({ success: false, message: "Metrics file not found" });
+    }
+
+    const taskQueryId = ObjectId.isValid(taskId) ? new ObjectId(taskId) : taskId;
+    const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+      .findOne({ _id: taskQueryId as any, userID: userId });
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Metrics file not found" });
+    }
+
     const filePath = path.join(METRICS_DIR, safeName);
+    await fsAsync.access(filePath);
     return res.download(filePath, safeName);
   } catch (error: any) {
     console.error("Error downloading metrics file:", error);
-    return res.status(500).json({
+    return res.status(error?.code === "ENOENT" ? 404 : 500).json({
       success: false,
-      message: error.message || "Failed to download metrics file",
+      message: error?.code === "ENOENT" ? "Metrics file not found" : error.message || "Failed to download metrics file",
     });
   }
 }

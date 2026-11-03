@@ -18,6 +18,7 @@ import { handlersWildlife } from "./mswHandlers";
 import { DemoProvider } from "./DemoContext";
 import { DemoBanner } from "./DemoBanner";
 import "./demo-layout.css";
+import DashboardPage from "../pages/DashboardPage";
 
 const makeStore = () =>
   configureStore({
@@ -90,6 +91,7 @@ export default function DemoApp({ initMSW = false, createRouter = false, route =
             { path: "/home", element: <CodebookLandingPage /> },
             { path: "/new-codebook", element: <DatasetUploadPage /> },
             { path: "/codebook-creation/:taskId", element: <AnnotationPage /> },
+            { path: "/dashboard/:taskId", element: <DashboardPage /> },
           ],
         },
       ],

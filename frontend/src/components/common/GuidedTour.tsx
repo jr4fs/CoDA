@@ -31,6 +31,7 @@ export interface GuidedTourStepProps {
   title: string;
   description: string;
   position?: "top" | "right" | "bottom" | "left";
+  className?: string;
   children: ReactNode;
 }
 
@@ -143,6 +144,7 @@ export function GuidedTourStep({
   title,
   description,
   position = "right",
+  className,
   children,
   [TOUR_CONTEXT_PROP]: context,
 }: GuidedTourStepInternalProps) {
@@ -177,6 +179,9 @@ export function GuidedTourStep({
     color: isDark ? theme.colors.gray[1] : theme.colors.gray[9],
     boxShadow: isDark ? "0 16px 36px rgba(0, 0, 0, 0.45)" : "0 16px 36px rgba(0, 0, 0, 0.15)",
     border: `1px solid ${isDark ? theme.colors.gray[6] : theme.colors.gray[2]}`,
+    maxWidth: "50vw",
+    whiteSpace: "normal" as const,
+    overflowWrap: "break-word" as const,
   };
 
   return (
@@ -184,7 +189,7 @@ export function GuidedTourStep({
       <Popover.Target>
         <div
           ref={targetRef}
-          className={isActive ? styles.highlight : undefined}
+          className={[className, isActive ? styles.highlight : ""].filter(Boolean).join(" ") || undefined}
         >
           {children}
         </div>

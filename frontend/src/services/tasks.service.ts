@@ -12,6 +12,7 @@ import {
   Task,
 } from "@common/types/tasks";
 import { apiClient } from "../lib/apiClient";
+import type { AnalysisRecord, DataAnalysisResponse } from "@common/types/dataAnalysis";
 
 export async function createTask(
   payload: CreateTaskRequest | UpdateTaskRequest,
@@ -27,6 +28,24 @@ export async function getUserTasks(): Promise<TaskQueryResponse> {
   const { data } =
     await apiClient.get<TaskQueryResponse>(`/api/tasks/getTasks`);
   return data;
+}
+
+export async function getDataAnalysisData(
+  taskId: string,
+  options: { search?: string; sort?: string; label?: string; page?: number } = {},
+): Promise<DataAnalysisResponse> {
+  const { data } = await apiClient.get<DataAnalysisResponse>(
+    `/api/tasks/data-analysis/${encodeURIComponent(taskId)}`,
+    { params: options },
+  );
+  return data;
+}
+
+export async function getDataAnalysisIdRecords(taskId: string, id: string): Promise<AnalysisRecord[]> {
+  const { data } = await apiClient.get<{ success: boolean; records: AnalysisRecord[] }>(
+    `/api/tasks/data-analysis/${encodeURIComponent(taskId)}/id/${encodeURIComponent(id)}`,
+  );
+  return data.records;
 }
 
 export async function saveTaskCodebook(taskId: string, codebook: string[]) {
@@ -66,7 +85,7 @@ export async function uploadFile(file: File): Promise<UploadFileResponse> {
 }
 
 export async function uploadTaskBundle(params: {
-  dValFile: File;
+  dValFile?: File;
   dAllFile: File;
   taskJsonFile?: File;
   taskName?: string;
@@ -74,10 +93,12 @@ export async function uploadTaskBundle(params: {
   taskType?: "Multiclass" | "Single-class";
   labelsJsonFile: File;
   textColumn: string;
-  labelColumn: string;
+  labelColumn?: string;
   modelName: string;
   coverageN?: number;
   useRepresentativeSampling?: boolean;
+  evaluationBatchSize?: number;
+  evaluationTarget?: number;
   onProgress?: (percent: number) => void;
 }): Promise<{
   success: boolean;
@@ -97,7 +118,9 @@ export async function uploadTaskBundle(params: {
   task?: Task;
 }> {
   const formData = new FormData();
-  formData.append("d_val", params.dValFile);
+  if (params.dValFile) formData.append("d_val", params.dValFile);
+  formData.append("evaluation_batch_size", String(params.evaluationBatchSize ?? 10));
+  formData.append("evaluation_target", String(params.evaluationTarget ?? 20));
 
   // Gzip the large unlabeled CSV in the browser to cut upload time (text CSVs
   // compress ~5-10x). The server decompresses when d_all_gzip=true. Falls back to
@@ -132,7 +155,7 @@ export async function uploadTaskBundle(params: {
   }
   formData.append("labels_json", params.labelsJsonFile);
   formData.append("text_column", String(params.textColumn));
-  formData.append("label_column", String(params.labelColumn));
+  if (params.labelColumn) formData.append("label_column", params.labelColumn);
   formData.append("model_name", String(params.modelName));
   formData.append(
     "coverage_n",
@@ -143,7 +166,7 @@ export async function uploadTaskBundle(params: {
   );
   formData.append(
     "use_representative_sampling",
-    String(Boolean(params.useRepresentativeSampling)),
+    String(params.useRepresentativeSampling ?? true),
   );
 
   const { data } = await apiClient.post("/api/tasks/create", formData, {
@@ -189,9 +212,10 @@ export async function downloadAnnotationOutputFile(filename: string): Promise<Bl
   return response.data as Blob;
 }
 
-export async function uploadOutputFile(file: File): Promise<UploadFileResponse> {
+export async function uploadOutputFile(file: File, taskId: string): Promise<UploadFileResponse> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("taskId", taskId);
   const { data } = await apiClient.post<UploadFileResponse>(
     "/api/tasks/upload-output",
     formData,
@@ -242,6 +266,10 @@ export async function startFinalInference(
     message?: string;
   }>("/api/tasks/final-inference", { taskId, codebook }, { timeout: 60_000 });
   return data;
+}
+
+export async function cancelFinalInference(taskId: string): Promise<void> {
+  await apiClient.post("/api/tasks/final-inference/cancel", { taskId });
 }
 
 // Persist the final-inference output file path so it survives a reload.

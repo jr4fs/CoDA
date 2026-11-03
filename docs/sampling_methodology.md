@@ -203,7 +203,7 @@ Both sampling paths use the same singleton model instance to avoid loading the w
 | Field | Type | Effect |
 |---|---|---|
 | `coverage_n` | `int` (default 150) | Number of examples in D_guide |
-| `use_representative_sampling` | `bool` (default `false`) | Whether to build D_rest via label sampling before coverage sampling |
+| `use_representative_sampling` | `bool` (default `true`) | Whether to build D_rest via label sampling before coverage sampling in the legacy path |
 | `split_to_sentences` | `bool` (default `true`) | Whether to split records into sentences before embedding for FAISS |
 | `text_col` | `List[str]` | Columns concatenated into `text_combined` |
 | `labels[].keywords` | `List[str]` | Drives query construction; labels with no keywords are skipped |

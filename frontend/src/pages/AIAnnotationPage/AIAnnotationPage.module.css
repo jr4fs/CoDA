@@ -150,11 +150,27 @@
   flex-direction: column;
 }
 
+.reviewTourStep,
+.reviewPaper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .leftPanelScroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* Evidence selection needs the same narrative surface, without hover clipping. */
+.sampleBoxExpanded {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.45;
 }
 
 .rightPanelStack {
@@ -276,8 +292,17 @@
 
   .mainColumn,
   .sidebarColumn,
-  .dropCard {
+  .dropCard,
+  .reviewTourStep,
+  .reviewPaper {
     height: auto;
+    flex: initial;
     min-height: auto;
+  }
+
+  .leftPanelScroll {
+    flex: initial;
+    min-height: auto;
+    overflow: visible;
   }
 }

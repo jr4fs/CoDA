@@ -22,7 +22,7 @@ function RootApp() {
   }, []);
 
   return isDemoRoute ? (
-    <DemoApp createRouter initMSW route="/codebook-creation/demo-task-1" />
+    <DemoApp createRouter initMSW route="/dashboard/demo-task-1" />
   ) : (
     <App />
   );

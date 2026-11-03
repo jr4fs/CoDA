@@ -104,9 +104,8 @@ class OpenRouterAdapter(BaseModel):
             headers=headers,
             timeout=180,
         )
-        # Not every model/provider accepts json_schema response_format. On a 4xx,
-        # retry once with a generic json_object (downstream code can still parse it).
-        if 400 <= r.status_code < 500 and payload.get("response_format", {}).get(
+        # Retry a schema-validation rejection, not authentication or rate-limit errors.
+        if r.status_code in (400, 422) and payload.get("response_format", {}).get(
             "type"
         ) == "json_schema":
             _logger.warning(
@@ -172,8 +171,17 @@ class AnnotationLLMOutput(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
-# Friendly model keys exposed in the UI / stored on TaskDetails.modelName.
-MODEL_KEYS = ["mistral:7b", "gemma3:1b", "qwen3.5:2b", "qwen:72b", "llama3.3:70b"]
+# Model keys stored on TaskDetails.modelName.
+MODEL_KEYS = [
+    "mistral:7b",
+    "gemma3:1b",
+    "qwen3.5:2b",
+    "qwen:72b",
+    "qwen2.5:32b",
+    "qwen2.5:72b",
+    "llama3.3:70b",
+]
+SELECTABLE_MODEL_KEYS = MODEL_KEYS
 
 # Default mapping from friendly key -> OpenRouter model slug. Slugs occasionally
 # change in the OpenRouter catalogue (https://openrouter.ai/models); override any
@@ -184,8 +192,16 @@ DEFAULT_OPENROUTER_MODEL_MAP = {
     "gemma3:1b": "google/gemma-3-4b-it",
     "qwen3.5:2b": "qwen/qwen-2.5-7b-instruct",
     "qwen:72b": "qwen/qwen-2.5-72b-instruct",
+    "qwen2.5:32b": "qwen/qwen2.5-32b-instruct",
+    "qwen2.5:72b": "qwen/qwen-2.5-72b-instruct",
     "llama3.3:70b": "meta-llama/llama-3.3-70b-instruct",
 }
+
+
+def selectable_model_keys(provider: str) -> List[str]:
+    if provider == "openrouter":
+        return [key for key in SELECTABLE_MODEL_KEYS if key != "qwen2.5:32b"]
+    return SELECTABLE_MODEL_KEYS
 
 
 def _build_registry() -> Dict[str, Any]:
@@ -260,6 +276,12 @@ configs = {
         "temperature": 0.4,
     },
     "qwen:72b": {
+        "temperature": 0.4,
+    },
+    "qwen2.5:32b": {
+        "temperature": 0.4,
+    },
+    "qwen2.5:72b": {
         "temperature": 0.4,
     },
     "llama3.3:70b": {

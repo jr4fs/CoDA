@@ -1,10 +1,11 @@
-import { Badge, Box, Button, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
+import { Badge, Box, Button, Center, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal";
 import PageIntro from "../../components/common/PageIntro";
 import GuidedTour, { GuidedTourStep } from "../../components/common/GuidedTour";
 import StepTrackerBanner from "../../components/StepTrackerBanner";
 import { useDemo } from "../../demo/DemoContext";
+import { IconArrowRight } from "@tabler/icons-react";
 import styles from "./AIAnnotationPage.module.css";
 
 import { CodebookPanel } from "./components/CodebookPanel";
@@ -77,6 +78,22 @@ export default function AnnotationPage() {
     );
   }
 
+  if (controller.task && (controller.baselineState === "idle" || controller.baselineState === "running")) {
+    return <LoadingStatus isLight={isLight} message="Evaluating the initial codebook before review…" progress={controller.baselineProgress} />;
+  }
+
+  if (controller.task && controller.baselineState === "failed") {
+    return (
+      <Center h="100vh" bg="var(--app-bg)">
+        <Stack align="center" gap="md">
+          <Text c={isLight ? "#0f1418" : "white"} ta="center">The initial evaluation did not finish. Review has not started, so you can retry safely.</Text>
+          <Button onClick={() => void controller.retryBaseline()}>Retry initial evaluation</Button>
+          <Button variant="subtle" onClick={controller.goHome}>Go Home</Button>
+        </Stack>
+      </Center>
+    );
+  }
+
   if (!controller.task || !controller.isReady) {
     return (
       <ErrorStatus
@@ -95,13 +112,18 @@ export default function AnnotationPage() {
       <div className={styles.orbOne} />
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)}>
       <Container fluid className={styles.hero}>
-        <StepTrackerBanner currentStep={controller.isCompleteStep ? 3 : 2} activeSteps={[controller.isCompleteStep ? 3 : 2]} onHelp={controller.handleHelp} />
+        <StepTrackerBanner evaluationFlow={Boolean(controller.task.evaluationBuild)} currentStep={(controller.isCompleteStep ? 3 : 2) + (controller.task.evaluationBuild ? 1 : 0)} onHelp={controller.handleHelp} />
         <Paper className={styles.taskHeader} radius="md">
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
             <div className={styles.taskInfo}>
-              <Text className={styles.taskTitle} lineClamp={1}>
-                Codebook Creation Task: {controller.task.name}
-              </Text>
+              <Group gap="xs" align="center" wrap="nowrap">
+                <Text className={styles.taskTitle} lineClamp={1}>
+                  Codebook Creation Task: {controller.task.name}
+                </Text>
+                <Badge variant="light" color="blue" size="sm" style={{ flexShrink: 0 }}>
+                  {controller.task.modelName || "mistral:7b"}
+                </Badge>
+              </Group>
               <Text className={styles.taskDescription} lineClamp={2}>
                 {controller.task.description}
               </Text>
@@ -149,7 +171,9 @@ export default function AnnotationPage() {
                     ? "—"
                     : Math.round(controller.annotatedMetrics.f1 * 100)}
                 </Badge>
+                
               </Tooltip>
+              <IconArrowRight size={12} color="hsl(0, 0%, 40%)"/>
               <Tooltip
                 label={
                   controller.predictedAccuracy === null
@@ -199,6 +223,7 @@ export default function AnnotationPage() {
           finalLabeledRowCount={controller.finalLabeledRows.length}
           finalInferenceHasResult={controller.finalInferenceHasResult}
           onRunFinalInference={controller.handleRunFinalInference}
+          onCancelFinalInference={controller.handleCancelFinalInference}
           onDownloadFinalInference={controller.handleDownloadFinalInference}
         />
 
@@ -227,7 +252,7 @@ export default function AnnotationPage() {
           mode={controller.introShowCheckbox ? "firstRun" : "help"}
           opened={isDemo ? false : controller.introOpen}
           onClose={controller.handleCloseIntro}
-          title="Step 2: AI annotation review"
+          title={`Step ${controller.task.evaluationBuild ? 3 : 2}: AI annotation review`}
           description="Review AI suggestions, mark them correct or incorrect, and add feedback to refine the live codebook. This step prepares the final guidance."
           storageKey="hideStep5Intro"
           showSecondaryAction={true}
@@ -242,9 +267,9 @@ export default function AnnotationPage() {
 
             <Grid gutter="md" align="stretch" className={styles.annotationGrid}>
               <Grid.Col span={{ base: 12, md: 8 }} h="100%" className={styles.mainColumn}>
-                <GuidedTourStep order={1} position="bottom" title="Batch Progress" description="Each batch contains ~10 samples. You review and mark each as correct or incorrect. After completing the batch, click 'Commit Batch' to synthesize rules.">
-                  <Paper radius="lg" bg={surface}>
-                    <Stack p="md" gap="md" style={{ overflow: "auto" }}>
+                <GuidedTourStep className={styles.reviewTourStep} order={1} position="bottom" title="Batch Progress" description="Each batch contains ~10 samples. You review and mark each as correct or incorrect. After completing the batch, click 'Commit Batch' to synthesize rules.">
+                  <Paper className={styles.reviewPaper} radius="lg" bg={surface}>
+                    <Stack p="md" gap="md" className={styles.leftPanelScroll}>
                       <Group justify="space-between" align="center" wrap="nowrap">
                         <BatchProgressSection
                           isLight={isLight}

@@ -6,7 +6,8 @@ import DatasetUploadPage from "./pages/DatasetUploadPage";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { AdminRoute } from "./components/auth/AdminRoute";
 import { PublicRoute } from "./components/auth/PublicRoute";
-import AnnotationPage from "./pages/AIAnnotationPage";
+import CodebookTaskRoute from "./pages/CodebookTaskRoute";
+import EvaluationBuilderPage from "./pages/EvaluationBuilderPage";
 import CodebookLandingPage from "./pages/CodebookLandingPage";
 import LandingPage from "./pages/LandingPage";
 import AdminPage from "./pages/AdminPage";
@@ -52,7 +53,11 @@ export const router = createBrowserRouter([
           },
           {
             path: "/codebook-creation/:taskId?",
-            element: <AnnotationPage />,
+            element: <CodebookTaskRoute />,
+          },
+          {
+            path: "/evaluation-builder/:taskId",
+            element: <EvaluationBuilderPage />,
           },
           {
             path: "/new-annotation",

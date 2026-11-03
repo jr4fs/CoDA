@@ -11,7 +11,6 @@ import {
   Progress,
   Select,
   Stack,
-  Switch,
   Text,
   Textarea,
   TextInput,
@@ -19,12 +18,14 @@ import {
   useMantineColorScheme,
 } from "@mantine/core";
 import {IconAlertCircle, IconArrowRight, IconBraces, IconDownload, IconFileTypeCsv, IconUpload,} from "@tabler/icons-react";
+import {isAxiosError} from "axios";
 import {type ReactNode, useCallback, useState, useEffect} from "react";
 import {useNavigate} from "react-router-dom";
 import StepTrackerBanner from "../components/StepTrackerBanner";
 import GuidedTour, {GuidedTourStep} from "../components/common/GuidedTour";
 import PageIntro, {usePageIntroTour} from "../components/common/PageIntro";
-import {LABELS_TEMPLATE, TASK_TEMPLATE, modelOptions} from "../constants/datasetUpload.constants";
+import {LABELS_TEMPLATE, TASK_TEMPLATE} from "../constants/datasetUpload.constants";
+import { useModelOptions } from "../hooks/useModelOptions";
 import {toast} from "../lib/toast";
 import {uploadTaskBundle} from "../services/tasks.service";
 import {downloadContent} from "../utils/downloadContent";
@@ -36,7 +37,9 @@ interface UploadConfig {
   textColumn: string;
   labelColumn: string;
   coverageSampleSize: number | "";
-  useRepresentativeSampling: boolean;
+  evaluationBatchSize: number | "";
+  evaluationTarget: number | "";
+  taskType: "Multiclass" | "Single-class";
 }
 
 // Default total number of samples; overridable at build time via env.
@@ -44,11 +47,13 @@ const DEFAULT_COVERAGE_SAMPLES =
   Number(import.meta.env.VITE_DEFAULT_COVERAGE_SAMPLES) || 15;
 
 const defaultUploadConfig: UploadConfig = {
-  selectedModel: "mistral:7b",
+  selectedModel: "qwen2.5:72b",
   textColumn: "translated_text",
   labelColumn: "Final Label",
   coverageSampleSize: DEFAULT_COVERAGE_SAMPLES,
-  useRepresentativeSampling: false,
+  evaluationBatchSize: 10,
+  evaluationTarget: 20,
+  taskType: "Multiclass",
 };
 
 interface RequiredFileCardProps {
@@ -95,14 +100,14 @@ function RequiredFileCard({
         accept={accept}
         onChange={(event) => onFileChange(event.currentTarget.files?.[0] || null)}
       />
-      <Group justify="space-between" w="100%" wrap="nowrap">
+      <Group justify="space-between" w="100%" wrap="wrap" className={styles.fileRowHeader}>
         <Group gap={8} wrap="nowrap">
           {icon}
           <Text fw={600} className={styles.fileLabel}>
             {label}
           </Text>
         </Group>
-        <Group gap={6} wrap="nowrap">
+        <Group gap="xs" wrap="wrap" className={styles.fileRowActions}>
           {preSelectAction ? (
             <button
               type="button"
@@ -123,7 +128,7 @@ function RequiredFileCard({
       </Text>
       {children}
       {!hideMeta && templateAction ? (
-        <Group className={styles.fileMetaRow} wrap="nowrap">
+        <Group className={styles.fileMetaRow} wrap="wrap">
           <Text
             size="xs"
             className={`${styles.fileName} ${file ? styles.fileNameSelected : styles.fileNameMissing}`}
@@ -157,6 +162,10 @@ export default function DatasetUploadPage() {
   const {colorScheme} = useMantineColorScheme();
   const isLight = colorScheme === "light";
   const { isDemo, tourOpen: demoTourOpen, setTourOpen: setDemoTourOpen } = useDemo();
+  const { options: liveModelOptions, error: modelOptionsError } = useModelOptions(isDemo);
+  const availableModelOptions = isDemo
+    ? [{ value: "qwen2.5:32b", label: "Qwen2.5-32B (simulated demo)" }]
+    : liveModelOptions;
 
   const [dValFile, setDValFile] = useState<File | null>(null);
   const [dAllFile, setDAllFile] = useState<File | null>(null);
@@ -191,7 +200,7 @@ export default function DatasetUploadPage() {
       setManualTaskDescription("Classify social media posts about pangolin conservation as positive, negative, or neutral toward conservation.");
       setConfig(prev => ({
         ...prev,
-        selectedModel: "claude-3-5-sonnet",
+        selectedModel: "qwen2.5:32b",
         textColumn: "translated_text",
         labelColumn: "Final Label",
       }));
@@ -217,7 +226,12 @@ export default function DatasetUploadPage() {
   const hasManualTaskDetails =
     manualTaskName.trim().length > 0 && manualTaskDescription.trim().length > 0;
   const hasTaskDetails = taskDetailsMode === "file" ? Boolean(taskJsonFile) : hasManualTaskDetails;
-  const isReady = Boolean(dValFile && dAllFile && hasTaskDetails && labelsJsonFile);
+  const isReady = Boolean(
+    dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() &&
+    config.selectedModel && config.evaluationBatchSize && config.evaluationTarget &&
+    config.coverageSampleSize &&
+    (isDemo || liveModelOptions.some((model) => model.value === config.selectedModel))
+  );
 
   const handleHelp = openHelpIntro;
 
@@ -244,15 +258,15 @@ export default function DatasetUploadPage() {
 
   const handleUpload = useCallback(async () => {
     if (
-      !dValFile ||
       !dAllFile ||
       !hasTaskDetails ||
       !labelsJsonFile ||
-      !config.labelColumn ||
-      !config.selectedModel
+      !config.textColumn.trim() ||
+      !config.selectedModel ||
+      (!isDemo && !liveModelOptions.some((model) => model.value === config.selectedModel))
     ) {
       setError(
-          "Please provide both CSVs, labels JSON, task details (JSON upload or manual entry), label column, and preferred model before continuing.",
+          "Provide the unlabeled CSV, labels JSON, task details, text column, and preferred model before continuing.",
       );
       return;
     }
@@ -262,50 +276,63 @@ export default function DatasetUploadPage() {
     setIsUploading(true);
 
     try {
+      if (!isDemo) {
+        let selectedLabels: unknown;
+        try {
+          selectedLabels = JSON.parse(await labelsJsonFile.text());
+        } catch {
+          throw new Error(`"${labelsJsonFile.name}" is not valid JSON. Select a labels.json file.`);
+        }
+        if (
+          !selectedLabels ||
+          typeof selectedLabels !== "object" ||
+          !Array.isArray((selectedLabels as { labels?: unknown }).labels) ||
+          !(selectedLabels as { labels: unknown[] }).labels.length
+        ) {
+          throw new Error(`"${labelsJsonFile.name}" is not a label set. Select a labels.json file with a non-empty "labels" array, or download the label template.`);
+        }
+      }
       const response = await uploadTaskBundle({
         onProgress: setUploadProgress,
-        dValFile,
+        dValFile: isDemo ? dValFile ?? undefined : undefined,
         dAllFile,
         taskJsonFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
         taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
         taskDescription:
           taskDetailsMode === "manual" ? manualTaskDescription.trim() : undefined,
-        taskType: "Multiclass",
+        taskType: config.taskType,
         labelsJsonFile,
         textColumn: config.textColumn,
-        labelColumn: config.labelColumn,
+        labelColumn: isDemo ? config.labelColumn : undefined,
         modelName: config.selectedModel ?? "",
         coverageN:
           typeof config.coverageSampleSize === "number"
             ? config.coverageSampleSize
             : DEFAULT_COVERAGE_SAMPLES,
-        useRepresentativeSampling: config.useRepresentativeSampling,
+        evaluationBatchSize: Number(config.evaluationBatchSize),
+        evaluationTarget: Number(config.evaluationTarget),
       });
 
       if (!response.success || !response.taskId) {
         throw new Error(response.message || "Upload failed.");
       }
 
-      if (response.valSummary && response.restSummary) {
-        toast.success(
-          `Task created. Sampling is pending. Labeled rows: ${response.valSummary.rows}. Unlabeled rows: ${response.restSummary.rows}.`,
-        );
-      } else {
-        toast.success("Task created. Sampling is pending.");
-      }
+      toast.success("Task created. Your evaluation set is ready to build.");
 
       window.dispatchEvent(new Event("tasks:updated"));
-      navigate(`/codebook-creation/${response.taskId}`, {
+      navigate(`/${response.task?.evaluationBuild ? "evaluation-builder" : "codebook-creation"}/${response.taskId}`, {
         state: {
           task: response.task,
           fileName: response.fileName,
         },
       });
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Failed to upload files.");
+      if (isAxiosError<{message?: string}>(err)) {
+        setError(err.response?.status === 400
+          ? err.response.data?.message || "Check the uploaded files and column names."
+          : "Upload failed. Please try again.");
       } else {
-        setError("Failed to upload files.");
+        setError(err instanceof Error ? err.message : "Upload failed. Please try again.");
       }
     } finally {
       setIsUploading(false);
@@ -315,7 +342,9 @@ export default function DatasetUploadPage() {
     dAllFile,
     dValFile,
     hasTaskDetails,
+    isDemo,
     labelsJsonFile,
+    liveModelOptions,
     manualTaskDescription,
     manualTaskName,
     navigate,
@@ -327,13 +356,12 @@ export default function DatasetUploadPage() {
     <Box className={styles.page} style={{minHeight: "100dvh", overflowX: "hidden", overflowY: "auto"}}>
       <div className={styles.orbOne}/>
       <Container fluid className={styles.hero}>
-        <StepTrackerBanner currentStep={1} onHelp={handleHelp}/>
+        <StepTrackerBanner currentStep={1} evaluationFlow={!isDemo} onHelp={handleHelp}/>
         <Group justify="space-between" align="center" wrap="nowrap">
           <Title className={styles.title}>Upload Your Task Files</Title>
         </Group>
         <Text className={styles.subtitle}>
-          Upload your labeled examples, the remaining unlabeled data, and the task definition files to get
-          started.
+          Upload your unlabeled data and define the task. You’ll build an evaluation set by reviewing sampled narratives and highlighting the evidence for each label.
         </Text>
         <Group gap="sm" align="center" mt="sm" wrap="nowrap">
           <Text size="sm" c="dimmed">
@@ -373,22 +401,22 @@ export default function DatasetUploadPage() {
           opened={isDemo ? false : introOpen}
           onClose={() => setIntroOpen(false)}
           title="Step 1: Upload your task files"
-          description="Upload the labeled dataset, the unlabeled dataset, and the two JSON files. We will validate and move you to AI review."
+          description="Upload your unlabeled dataset, define your labels and task, then review small batches to build an evaluation set before codebook development."
           storageKey="hideStep1Intro"
           onStart={() => setTourOpen(true)}
         />
 
         <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)}>
-          <Stack gap="md">
-            <Grid gutter="md" align="stretch">
-              <Grid.Col span={{base: 12, md: 7}}>
+          <Stack gap="lg">
+            <Grid gutter="lg" align="stretch">
+              <Grid.Col span={{base: 12, lg: 7}}>
                 <GuidedTourStep
                   order={5}
                   title="Configure your task"
-                  description="Select the model and specify which columns contain your text and labels."
+                  description="Choose a model, the text column, and your evaluation targets."
                 >
                   <Paper className={styles.dropCard} radius="lg" h="100%">
-                    <Stack gap="sm">
+                    <Stack gap="md">
                       <Title order={4} className={styles.tableTitle}>
                         Task config
                       </Title>
@@ -397,10 +425,12 @@ export default function DatasetUploadPage() {
                     </Text>
                     <Divider my={4} color={dividerColor}/>
                     <NumberInput
-                      label="Budget"
-                      description="The maximum number of samples used for codebook development."
+                      label="Codebook review budget"
+                      description="Maximum guide examples to review. Label-targeted FAISS retrieval and coverage sampling are automatic."
                       value={config.coverageSampleSize}
                       min={1}
+                      max={1000}
+                      allowDecimal={false}
                       onChange={(value) =>
                         setConfigField(
                           "coverageSampleSize",
@@ -413,28 +443,18 @@ export default function DatasetUploadPage() {
                         input: styles.configInput,
                       }}
                     />
-                    <Switch
-                      label="Enable representative sampling"
-                      description="Off by default for this pilot. When enabled, we run representative sampling before coverage."
-                      checked={config.useRepresentativeSampling}
-                      onChange={(event) =>
-                        setConfigField(
-                          "useRepresentativeSampling",
-                          event.currentTarget.checked,
-                        )
-                      }
-                      classNames={{
-                        label: styles.configLabel,
-                        description: styles.configDescription,
-                      }}
-                    />
+                    <NumberInput label="Examples per label" description="Target expert-confirmed examples in your evaluation set." min={1} max={1000} allowDecimal={false} value={config.evaluationTarget} onChange={value => setConfigField("evaluationTarget", typeof value === "number" ? value : "")} />
+                    <NumberInput label="Records per round" description="Review this many narratives before the next sampling round." min={1} max={100} allowDecimal={false} value={config.evaluationBatchSize} onChange={value => setConfigField("evaluationBatchSize", typeof value === "number" ? value : "")} />
+                    {taskDetailsMode === "manual" && <Select label="Labels per record" data={[{ value: "Multiclass", label: "One or more labels" }, { value: "Single-class", label: "Exactly one label" }]} value={config.taskType} onChange={value => setConfigField("taskType", value === "Single-class" ? "Single-class" : "Multiclass")} />}
                     <Select
                       label="Model"
-                      description="Choose the model to use for AI annotation."
-                      placeholder="Select a model…"
+                      description="Choose the exact model used for AI annotation."
+                      placeholder={modelOptionsError ? "Models unavailable" : "Loading models…"}
                       value={config.selectedModel}
                       onChange={(value) => setConfigField("selectedModel", value)}
-                      data={modelOptions}
+                      data={availableModelOptions}
+                      disabled={!isDemo && !liveModelOptions.length}
+                      error={modelOptionsError ? "Could not load models from the inference service. Refresh to retry." : undefined}
                       classNames={{
                         label: styles.configLabel,
                         description: styles.configDescription,
@@ -454,30 +474,18 @@ export default function DatasetUploadPage() {
                         input: styles.configInput,
                       }}
                     />
-                    <TextInput
-                      label="Label column name"
-                      description="The column in your CSV that contains the human-annotated labels."
-                      placeholder="e.g. annotations, final label, labels"
-                      value={config.labelColumn}
-                      onChange={(event) => setConfigField("labelColumn", event.currentTarget.value)}
-                      classNames={{
-                        label: styles.configLabel,
-                        description: styles.configDescription,
-                        input: styles.configInput,
-                      }}
-                    />
                   </Stack>
                 </Paper>
                 </GuidedTourStep>
               </Grid.Col>
-              <Grid.Col span={{base: 12, md: 5}}>
+              <Grid.Col span={{base: 12, lg: 5}}>
                 <Paper className={styles.dropCard} radius="lg" h="100%">
-                  <Stack gap="sm">
+                  <Stack gap="lg">
                     <Title order={4} className={styles.tableTitle}>
                       Required files
                     </Title>
                     <Text size="sm" className={styles.tableMeta}>
-                      Upload both CSVs and both JSON files to continue.
+                      Upload your unlabeled CSV and label definitions, then upload or enter task details.
                     </Text>
                     <Divider my={4} color={dividerColor}/>
                     <GuidedTourStep
@@ -543,7 +551,7 @@ export default function DatasetUploadPage() {
                     <GuidedTourStep
                       order={2}
                       title="Labels JSON"
-                      description="Provide the label list with name, description, keywords, and guidelines."
+                      description="Provide label names and definitions. Keywords are optional. Set requiresEvidence to false for labels based on absence of evidence."
                     >
                       <RequiredFileCard
                         inputId="labels-json"
@@ -551,7 +559,7 @@ export default function DatasetUploadPage() {
                         icon={<IconBraces size={18}/>}
                         label="Label set"
                         selectLabel="Select JSON"
-                        hint="JSON labels with name, keywords, guidelines"
+                        hint="Names and definitions; optional keywords and guidelines"
                         file={labelsJsonFile}
                         onFileChange={setLabelsJsonFile}
                         templateAction={{
@@ -562,26 +570,9 @@ export default function DatasetUploadPage() {
                     </GuidedTourStep>
 
                     <GuidedTourStep
-                      order={3}
-                      title="Upload labeled data"
-                      description='A subset of the dataset with labels. It should include "text" and "task_label" columns.'
-                    >
-                      <RequiredFileCard
-                        inputId="labeled-dataset"
-                        accept=".csv,text/csv"
-                        icon={<IconFileTypeCsv size={18}/>}
-                        label="Labeled dataset"
-                        selectLabel="Select CSV"
-                        hint="CSV with text + task_label columns"
-                        file={dValFile}
-                        onFileChange={setDValFile}
-                      />
-                    </GuidedTourStep>
-
-                    <GuidedTourStep
                       order={4}
                       title="Upload unlabeled data"
-                      description='The remaining dataset without labels. It should include a "text".'
+                      description="Your full dataset. Select its narrative column in the task settings."
                     >
                       <RequiredFileCard
                         inputId="unlabeled-dataset"
@@ -589,7 +580,7 @@ export default function DatasetUploadPage() {
                         icon={<IconFileTypeCsv size={18}/>}
                         label="Unlabeled dataset"
                         selectLabel="Select CSV"
-                        hint="CSV with text column only"
+                        hint="CSV with the configured text column; ID and date columns are optional"
                         file={dAllFile}
                         onFileChange={setDAllFile}
                       />
@@ -600,7 +591,7 @@ export default function DatasetUploadPage() {
             </Grid>
 
             {error && (
-              <Alert icon={<IconAlertCircle size={16}/>} color="red" variant="light">
+              <Alert icon={<IconAlertCircle size={16}/>} color="red" variant="light" role="alert">
                 {error}
               </Alert>
             )}
@@ -625,7 +616,7 @@ export default function DatasetUploadPage() {
                     disabled={!isReady}
                     onClick={handleUpload}
                   >
-                    Upload bundle
+                    Upload and build evaluation set
                   </Button>
                 </GuidedTourStep>
                 {isUploading && (

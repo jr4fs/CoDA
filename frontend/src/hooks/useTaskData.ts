@@ -109,7 +109,7 @@ export const useTaskData = () => {
           const csvResponse = await getCsvData(taskFile, taskValFile);
           setCsvData((prev) => (prev.length ? prev : csvResponse.data || []));
           setSubsampledData((prev) =>
-            prev.length ? prev : csvResponse.val_data || [],
+            prev.length ? prev : csvResponse.guide_data || [],
           );
           setRestData((prev) =>
             prev.length ? prev : csvResponse.rest_data || [],

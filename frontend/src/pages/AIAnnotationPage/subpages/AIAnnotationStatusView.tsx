@@ -1,11 +1,13 @@
-import { Box, Button, Center, Loader, LoadingOverlay, Stack, Text } from "@mantine/core";
+import { Box, Button, Center, Loader, LoadingOverlay, Progress, Stack, Text } from "@mantine/core";
 
 interface LoadingStatusProps {
   isLight: boolean;
   message: string;
+  progress?: { completed: number; total: number };
 }
 
-export function LoadingStatus({ isLight, message }: LoadingStatusProps) {
+export function LoadingStatus({ isLight, message, progress }: LoadingStatusProps) {
+  const percent = progress?.total ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : null;
   return (
     <Box
       mih="100dvh"
@@ -27,6 +29,19 @@ export function LoadingStatus({ isLight, message }: LoadingStatusProps) {
               <Text c={isLight ? "#0f1418" : "white"} fw={500} ta="center">
                 {message}
               </Text>
+              {progress && percent === null && (
+                <Text size="sm" c="dimmed" role="status">Waiting for sample progress…</Text>
+              )}
+              {progress && percent !== null && (
+                <>
+                  <Progress value={percent} w="min(80vw, 20rem)" aria-label="Initial evaluation progress" />
+                  <Text size="sm" c="dimmed" role="status">
+                    {percent === 100
+                      ? `All ${progress.total.toLocaleString()} samples evaluated. Saving results…`
+                      : `${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} samples evaluated (${percent}%)`}
+                  </Text>
+                </>
+              )}
             </Stack>
           ),
         }}

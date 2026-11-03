@@ -28,10 +28,11 @@
 
 .kicker {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: rgba(232, 238, 241, 0.7);
   font-size: 0.68rem;
+  font-weight: 500;
 }
 
 .steps {

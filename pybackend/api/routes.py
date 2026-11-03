@@ -37,7 +37,7 @@ from models.embedding_schemas import EmbedDatasetRequest, EmbedDatasetResponse
 from models.rule_synthesis_schema import RuleSynthesisRequest, RuleSynthesisResponse
 #from services.embedding_service import EmbeddingService
 from services.anonymizer.service import anonymize_csv_bytes, get_config_defaults
-from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse
+from models.ollama_adapter import InferenceRequest, InferenceResponse, BatchInferenceRequest, BatchInferenceResponse, BatchInferenceSummary, ValEvalRequest, ValEvalResponse, ValEvalSampleResult, AutoLabelRequest, AutoLabelJobResponse, registry, selectable_model_keys
 from services.chat.chat_service import ChatService
 from models.prompt_templating_model import PromptTemplate
 from services.chat.rule_synthesis_service import RuleSynthesisService
@@ -106,6 +106,12 @@ async def get_anonymize_defaults():
         return JSONResponse(content={"success": True, "defaults": defaults})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading defaults: {str(e)}")
+
+
+@chat_router.get("/models")
+async def list_inference_models():
+    """Expose the resolved model IDs so the selector matches the active provider."""
+    return [{"value": key, "label": registry[key].model} for key in selectable_model_keys(os.getenv("LLM_PROVIDER", "ollama").strip().lower())]
 
 
 @chat_router.post("/", response_model=InferenceResponse)
@@ -241,6 +247,8 @@ async def get_val_eval_progress(task_id: str):
 async def cancel_val_eval(task_id: str):
     """Signal any in-flight val-eval for this task to abort."""
     _eval_run_ids[task_id] = "__cancelled__"
+    if task_id in _eval_progress:
+        _eval_progress[task_id].update(done=True, cancelled=True)
     return {"cancelled": True}
 
 
@@ -249,7 +257,8 @@ async def run_val_eval(request: ValEvalRequest):
     """
     Run inference on all val-dataset samples using the final codebook and return
     per-sample predictions alongside ground-truth labels for metric computation.
-    Uses a semaphore to limit concurrent Ollama requests (matches OLLAMA_NUM_PARALLEL).
+    Evaluates one sample at a time so a model failure stops the run without
+    saving incomplete or misleading metrics.
     A run_id guards against concurrent evals for the same task: if a newer request
     arrives (or an explicit cancel is issued), in-flight samples finish but waiting
     samples are skipped and the response returns 409.
@@ -266,49 +275,43 @@ async def run_val_eval(request: ValEvalRequest):
         total = len(request.samples)
         _eval_progress[task_key] = {"completed": 0, "total": total, "done": False}
 
-        semaphore = asyncio.Semaphore(VAL_EVAL_CONCURRENCY)
-
         def is_active():
             return _eval_run_ids.get(task_key) == run_id
 
-        async def infer_sample(sample):
-            # Skip immediately if superseded before reaching the semaphore.
+        results = []
+        for sample in request.samples:
             if not is_active():
-                _eval_progress[task_key]["completed"] += 1
-                return ValEvalSampleResult(predicted=[], ground_truth=sample.ground_truth)
-            async with semaphore:
-                # Re-check after acquiring the semaphore.
-                if not is_active():
-                    _eval_progress[task_key]["completed"] += 1
-                    return ValEvalSampleResult(predicted=[], ground_truth=sample.ground_truth)
-                try:
-                    response = await asyncio.to_thread(
-                        chat_service_obj.send_chat,
-                        request.labels,
-                        request.task_definition,
-                        request.model_name,
-                        system_prompt,
-                        sample.text,
-                        request.user_input,
-                    )
-                    predicted = response["label"]
-                except Exception as e:
-                    print(f"[Val Eval] Sample inference failed, recording as no-prediction: {e}")
-                    predicted = []
+                raise HTTPException(status_code=409, detail="Evaluation was cancelled or superseded")
+            try:
+                response = await asyncio.to_thread(
+                    chat_service_obj.send_chat,
+                    request.labels,
+                    request.task_definition,
+                    request.model_name,
+                    system_prompt,
+                    sample.text,
+                    request.user_input,
+                )
+                predicted = response["label"]
+            except Exception as e:
+                print(f"[Val Eval] Model inference failed at sample {len(results) + 1}/{total}: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Model inference stopped at sample {len(results) + 1} of {total}. No evaluation was saved; check the model service logs before retrying.",
+                ) from e
+            results.append(ValEvalSampleResult(predicted=predicted, ground_truth=sample.ground_truth))
             _eval_progress[task_key]["completed"] += 1
-            return ValEvalSampleResult(predicted=predicted, ground_truth=sample.ground_truth)
-
-        results = await asyncio.gather(*[infer_sample(s) for s in request.samples])
-
-        if not is_active():
-            raise HTTPException(status_code=409, detail="Evaluation was cancelled or superseded")
 
         _eval_progress[task_key]["done"] = True
-        return ValEvalResponse(results=list(results))
+        return ValEvalResponse(results=results)
 
     except HTTPException:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
         raise
     except Exception as e:
+        if "task_key" in locals() and is_active():
+            _eval_progress[task_key]["done"] = True
         print("[Val Eval] Error while running val evaluation: ", e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -329,6 +332,9 @@ async def get_auto_label_progress(job_id: str):
 async def cancel_auto_label(job_id: str):
     """Signal an in-flight auto-label job to abort."""
     _auto_label_run_ids[job_id] = "__cancelled__"
+    if job_id in _auto_label_progress:
+        _auto_label_progress[job_id].update(done=True, cancelled=True, error="Inference cancelled")
+    _auto_label_results.pop(job_id, None)
     return {"cancelled": True}
 
 
@@ -362,6 +368,8 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
                 f"{AUTO_LABEL_MAX_ROWS}. Contact an administrator to raise this limit."
             )
         rows = df.to_dict(orient="records")
+        if _auto_label_run_ids.get(job_id) != run_id:
+            return
         total = len(rows)
         _auto_label_progress[job_id]["total"] = total
 
@@ -377,12 +385,10 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
             row_data = {k: str(v) for k, v in row.items()}
             text = row_data.get(request.text_column, "")
             if not is_active():
-                _auto_label_progress[job_id]["completed"] += 1
-                return {**row_data, "generated_label": ""}
+                return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
             async with semaphore:
                 if not is_active():
-                    _auto_label_progress[job_id]["completed"] += 1
-                    return {**row_data, "generated_label": ""}
+                    return {**row_data, "generated_label": "", "generated_labels_json": "[]"}
                 try:
                     response = await asyncio.to_thread(
                         chat_service_obj.send_chat,
@@ -393,18 +399,25 @@ async def _run_auto_label_job(job_id: str, run_id: str, request: AutoLabelReques
                         text,
                         request.user_input,
                     )
-                    generated_label = "|".join(response["label"])
+                    generated_labels = response["label"]
+                    generated_label = "|".join(generated_labels)
                 except Exception as e:
                     print(f"[Auto Label] Sample inference failed: {e}")
                     generated_label = "ERROR"
-                _auto_label_progress[job_id]["completed"] += 1
-                return {**row_data, "generated_label": generated_label}
+                    generated_labels = []
+                if is_active():
+                    _auto_label_progress[job_id]["completed"] += 1
+                return {**row_data, "generated_label": generated_label, "generated_labels_json": json.dumps(generated_labels)}
 
         results = await asyncio.gather(*[infer_one(r) for r in rows])
+        if not is_active():
+            return
         _auto_label_results[job_id] = list(results)
         _auto_label_progress[job_id]["done"] = True
         print(f"[Auto Label] Job {job_id} complete: {len(results)} rows labeled")
     except Exception as e:
+        if _auto_label_run_ids.get(job_id) != run_id:
+            return
         print(f"[Auto Label] Job {job_id} failed: {e}")
         _auto_label_progress[job_id]["done"] = True
         _auto_label_progress[job_id]["error"] = str(e)
@@ -480,3 +493,14 @@ async def run_sampling(request: EmbedDatasetRequest):
         return {"success": True, "message": "Sampling completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from services.managedata.evaluation_sampling import EvaluationSamplingRequest, EvaluationSampler
+
+
+@embedding_router.post("/evaluation-sample")
+async def sample_evaluation(request: EvaluationSamplingRequest):
+    try:
+        return await sampling_queue.submit(EvaluationSampler(request).run)
+    except (ValueError, FileNotFoundError) as error:
+        raise HTTPException(status_code=400, detail=str(error))

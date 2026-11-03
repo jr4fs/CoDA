@@ -1,6 +1,7 @@
 import { RuleSynthesisItem, RuleSynthesisRequest } from "@common/types/ruleSynthesis";
+import type { Task } from "@common/types/tasks";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAITaskData } from "../../../hooks/useAITaskData";
 import { toast } from "../../../lib/toast";
 import {
@@ -14,13 +15,13 @@ import {
 import { ruleSynthesis } from "../../../services/ruleSynthesis.service";
 import {
   downloadAnnotationOutputFile,
+  cancelFinalInference,
   exportCodebookSnapshot,
   getAutoLabelProgress,
   markCodebookComplete,
-  saveFinalInferenceResult,
   saveTaskCodebook,
   startFinalInference,
-  uploadOutputFile,
+  getTaskById,
 } from "../../../services/tasks.service";
 import { downloadContent } from "../../../utils/downloadContent";
 import { INTRO_STORAGE_KEY } from "../constants";
@@ -30,6 +31,8 @@ import { useAnnotationReviewFlow } from "./useAnnotationReviewFlow";
 import { useCodebookManager } from "./useCodebookManager";
 import { useIntroState } from "./useIntroState";
 import { useSamplingStatus } from "./useSamplingStatus";
+
+const RUN_MODEL_BASELINE_ON_ENTRY = false; // Re-enable when initial-codebook inference is wanted.
 
 // Macro-averaged F1 over (predicted, ground-truth) label-set pairs — the simple
 // mean of per-label F1, matching the backend's val-eval macroF1.
@@ -59,6 +62,7 @@ function computeMacroF1(
 
 export const useAIAnnotationController = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { loading, task, guideAnnotations, refreshTaskData } = useAITaskData();
 
   const introState = useIntroState({ storageKey: INTRO_STORAGE_KEY });
@@ -69,6 +73,15 @@ export const useAIAnnotationController = () => {
   });
 
   const codebookState = useCodebookManager({ task });
+  const hasPriorReview = Boolean(task?.codebookComplete || guideAnnotations.some(
+    (annotation) => typeof annotation.aiAnnotation?.isCorrect === "boolean",
+  ));
+  const [baselineStatus, setBaselineStatus] = useState<{
+    taskId: string;
+    state: "idle" | "running" | "ready" | "failed" | "legacy";
+  }>({ taskId: "", state: "idle" });
+  const baselineState = baselineStatus.taskId === task?._id ? baselineStatus.state : "idle";
+  const [baselineProgress, setBaselineProgress] = useState({ completed: 0, total: 0 });
 
   const reviewState = useAnnotationReviewFlow({
     task,
@@ -76,9 +89,13 @@ export const useAIAnnotationController = () => {
     codebook: codebookState.codebook,
     getCodebookSnapshot: codebookState.getCodebookSnapshot,
     setLastPromptUsed: codebookState.setLastPromptUsed,
+    reviewEnabled: hasPriorReview || baselineState === "ready",
   });
 
   const [metricsModalOpen, setMetricsModalOpen] = useState(false);
+  useEffect(() => {
+    if (task?.codebookComplete && searchParams.get("results") === "1") setMetricsModalOpen(true);
+  }, [task?.codebookComplete, searchParams]);
   const [metricsFiles, setMetricsFiles] = useState<MetricsFiles>({});
   const [reviewCompleted, setReviewCompleted] = useState(false);
   const [isRunningValEval, setIsRunningValEval] = useState(false);
@@ -96,7 +113,7 @@ export const useAIAnnotationController = () => {
 
   // Final step: run inference over d_all with the latest codebook.
   const [finalInferencePhase, setFinalInferencePhase] = useState<
-    "idle" | "running" | "done" | "error"
+    "idle" | "running" | "done" | "error" | "cancelled"
   >("idle");
   const [finalInferenceProgress, setFinalInferenceProgress] = useState({ completed: 0, total: 0 });
   const [finalLabeledRows, setFinalLabeledRows] = useState<Array<Record<string, string>>>([]);
@@ -104,6 +121,7 @@ export const useAIAnnotationController = () => {
   // reload), so the labeled dataset can be re-downloaded from the server.
   const [finalInferenceFile, setFinalInferenceFile] = useState<string | null>(null);
   const finalInferencePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const baselineRequestedForTaskRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -111,6 +129,61 @@ export const useAIAnnotationController = () => {
     },
     [],
   );
+
+  const startBaselineEvaluation = async () => {
+    if (!task?._id) return;
+    setBaselineProgress({ completed: 0, total: 0 });
+    setBaselineStatus({ taskId: task._id, state: "running" });
+    baselineRequestedForTaskRef.current = task._id;
+    try {
+      const result = await runValEvaluation(task._id, task.codebook ?? [], "baseline");
+      if (!result.success) throw new Error(result.message || "Baseline evaluation failed");
+      if (result.inProgress) {
+        for (let attempt = 0; attempt < 1300; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const latest = (await getTaskById(task._id)) as { task?: Task };
+          if (latest.task?.baselineStatus === "failed") throw new Error("Baseline evaluation failed");
+          if (latest.task?.evaluationHistory?.some((snapshot) =>
+            snapshot.stage === "baseline" && snapshot.evaluationKey === result.evaluationKey
+          )) break;
+          if (attempt === 1299) throw new Error("Baseline evaluation timed out");
+        }
+      }
+      setBaselineStatus({ taskId: task._id, state: "ready" });
+      await refreshTaskData();
+    } catch {
+      setBaselineStatus({ taskId: task._id, state: "failed" });
+      baselineRequestedForTaskRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!task?._id || loading) return;
+    if (hasPriorReview) { setBaselineStatus({ taskId: task._id, state: "legacy" }); return; }
+    if (task.status === "sampling_pending" || task.status === "sampling_error") return;
+    if (!RUN_MODEL_BASELINE_ON_ENTRY) {
+      if (baselineState !== "ready") setBaselineStatus({ taskId: task._id, state: "ready" });
+      return;
+    }
+    if (baselineRequestedForTaskRef.current === task._id) return;
+    void startBaselineEvaluation();
+  }, [hasPriorReview, loading, task, baselineState]);
+
+  useEffect(() => {
+    if (!task?._id || baselineState !== "running") return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const progress = await getValEvalProgress(task._id!);
+        if (active) setBaselineProgress({ completed: progress.completed, total: progress.total });
+      } catch {
+        // Keep the indeterminate loading state if progress is temporarily unavailable.
+      }
+    };
+    void poll();
+    const interval = setInterval(() => void poll(), 1500);
+    return () => { active = false; clearInterval(interval); };
+  }, [task?._id, baselineState]);
 
   // Rehydrate persisted state once per task load: completion (locks the UI),
   // held-out validation metrics, and any saved final-inference output.
@@ -298,9 +371,6 @@ export const useAIAnnotationController = () => {
     }
     window.dispatchEvent(new Event("tasks:updated"));
 
-    // Compute final metrics on the held-out validation set (d_val) with the
-    // final codebook, shown in the completion popup.
-    void handleRunValEval();
   };
 
   const handleNextOrCommit = async () => {
@@ -373,25 +443,56 @@ export const useAIAnnotationController = () => {
     downloadContent(filename, rowsToCsv(rows), "text/csv");
   };
 
-  // Save the labeled full-dataset output to the server so it survives a reload.
-  const persistFinalInference = async (
-    taskId: string,
-    rows: Array<Record<string, string>>,
-  ) => {
-    try {
-      const file = new File([rowsToCsv(rows)], `labeled_d_all_${taskId}.csv`, {
-        type: "text/csv",
-      });
-      const upload = await uploadOutputFile(file);
-      if (upload.success && upload.filePath) {
-        await saveFinalInferenceResult(taskId, upload.filePath);
-        setFinalInferenceFile(upload.filePath);
-        window.dispatchEvent(new Event("tasks:updated"));
+  const pollFinalInference = (taskId: string, filename: string, downloadOnComplete: boolean) => {
+    if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
+    finalInferencePollRef.current = setInterval(async () => {
+      try {
+        const progress = await getAutoLabelProgress(taskId);
+        setFinalInferenceProgress({ completed: progress.completed, total: progress.total });
+        if (progress.done) {
+          if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
+          finalInferencePollRef.current = null;
+          if (progress.cancelled) {
+            setFinalInferencePhase("cancelled");
+            return;
+          }
+          if (progress.error) {
+            toast.error(progress.error);
+            setFinalInferencePhase("error");
+            return;
+          }
+          const rows = progress.rows ?? [];
+          if (!progress.outputFile) {
+            toast.error("Inference finished, but the labeled dataset could not be saved. Please retry.");
+            setFinalInferencePhase("error");
+            return;
+          }
+          setFinalLabeledRows(rows);
+          setFinalInferenceFile(progress.outputFile);
+          window.dispatchEvent(new Event("tasks:updated"));
+          setFinalInferencePhase("done");
+          if (downloadOnComplete && rows.length > 0) {
+            downloadLabeledRows(rows, filename);
+            toast.success("Inference complete — labeled dataset downloaded.");
+          } else {
+            toast.success("Inference complete.");
+          }
+        }
+      } catch {
+        // ignore transient polling errors
       }
-    } catch (error) {
-      console.error("Failed to persist final inference output:", error);
-    }
+    }, 1500);
   };
+
+  useEffect(() => {
+    if (!task?._id) return;
+    if (task.finalInferenceStatus === "running") {
+      setFinalInferencePhase("running");
+      pollFinalInference(task._id, `labeled_d_all_${task.name || task._id}.csv`, false);
+    } else if (task.finalInferenceStatus === "cancelled") {
+      setFinalInferencePhase("cancelled");
+    }
+  }, [task?._id, task?.finalInferenceStatus]);
 
   const handleRunFinalInference = async () => {
     if (!task?._id || finalInferencePhase === "running") return;
@@ -401,6 +502,7 @@ export const useAIAnnotationController = () => {
     setFinalInferencePhase("running");
     setFinalInferenceProgress({ completed: 0, total: 0 });
     setFinalLabeledRows([]);
+    setFinalInferenceFile(null);
 
     try {
       const res = await startFinalInference(taskId, codebookState.codebook);
@@ -415,35 +517,22 @@ export const useAIAnnotationController = () => {
       return;
     }
 
-    if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
-    finalInferencePollRef.current = setInterval(async () => {
-      try {
-        const progress = await getAutoLabelProgress(taskId);
-        setFinalInferenceProgress({ completed: progress.completed, total: progress.total });
-        if (progress.done) {
-          if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
-          finalInferencePollRef.current = null;
-          if (progress.error) {
-            toast.error(progress.error);
-            setFinalInferencePhase("error");
-            return;
-          }
-          const rows = progress.rows ?? [];
-          setFinalLabeledRows(rows);
-          setFinalInferencePhase("done");
-          if (rows.length > 0) {
-            downloadLabeledRows(rows, filename);
-            // Persist the labeled output on the server so it survives a reload.
-            void persistFinalInference(taskId, rows);
-            toast.success("Inference complete — labeled dataset downloaded.");
-          } else {
-            toast.success("Inference complete.");
-          }
-        }
-      } catch {
-        // ignore transient polling errors
-      }
-    }, 1500);
+    pollFinalInference(taskId, filename, true);
+  };
+
+  const handleCancelFinalInference = async () => {
+    if (!task?._id || !window.confirm("Cancel full-dataset inference? Completed predictions from this run will not be saved.")) return;
+    try {
+      await cancelFinalInference(task._id);
+      if (finalInferencePollRef.current) clearInterval(finalInferencePollRef.current);
+      finalInferencePollRef.current = null;
+      setFinalInferencePhase("cancelled");
+      setFinalInferenceFile(null);
+      toast.success("Full-dataset inference cancelled");
+      await refreshTaskData();
+    } catch {
+      toast.error("Could not cancel full-dataset inference. Please try again.");
+    }
   };
 
   const handleDownloadFinalInference = async () => {
@@ -471,7 +560,7 @@ export const useAIAnnotationController = () => {
     }
   };
 
-  const handleRunValEval = async () => {
+  const runValEval = async (stage: "checkpoint" | "final") => {
     if (!task?._id) return;
     setIsRunningValEval(true);
     setValEvalProgress({ completed: 0, total: 0 });
@@ -488,7 +577,11 @@ export const useAIAnnotationController = () => {
     }, 1500);
 
     try {
-      const res = await runValEvaluation(taskId, codebookState.codebook);
+      const res = await runValEvaluation(
+        taskId,
+        codebookState.codebook,
+        stage,
+      );
       clearInterval(pollInterval);
       if (res.success) {
         if (res.macroF1 != null) setPredictedAccuracy(res.macroF1);
@@ -514,6 +607,8 @@ export const useAIAnnotationController = () => {
       setIsRunningValEval(false);
     }
   };
+
+  const handleRunValEval = () => runValEval("checkpoint");
 
   const goHome = () => navigate("/");
 
@@ -549,6 +644,9 @@ export const useAIAnnotationController = () => {
     loading,
     task,
     isReady,
+    baselineState,
+    baselineProgress,
+    retryBaseline: startBaselineEvaluation,
     effectiveStatus: samplingState.effectiveStatus,
     samplingErrorMsg: samplingState.samplingErrorMsg,
     samplingQueuePosition: samplingState.queuePosition,
@@ -569,6 +667,7 @@ export const useAIAnnotationController = () => {
     finalLabeledRows,
     finalInferenceHasResult: finalLabeledRows.length > 0 || finalInferenceFile !== null,
     handleRunFinalInference,
+    handleCancelFinalInference,
     handleDownloadFinalInference,
 
     isLoading: reviewState.isLoading,

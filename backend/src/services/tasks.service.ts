@@ -25,7 +25,9 @@ import path from "path";
 import dotenv from "dotenv";
 import axios from "axios";
 import zlib from "zlib";
+import { randomUUID } from "crypto";
 import { AnnotationItem } from "@common/types/annotations";
+import { createDemoBaseline } from "../utils/demoBaseline";
 dotenv.config();
 
 interface TaskValidation {
@@ -190,6 +192,7 @@ function parseLabelsJson(buffer: Buffer) {
         description?: string;
         keywords?: string[];
         guidelines?: unknown;
+        requiresEvidence?: boolean;
       }>;
     };
 
@@ -198,11 +201,12 @@ function parseLabelsJson(buffer: Buffer) {
       throw new Error("Labels JSON must include a non-empty labels array");
     }
 
+    const seen = new Set<string>();
     return labels.map((label, idx) => {
       const name = label.name?.trim() || "";
       const definition = label.description?.trim() || "";
       const keywords = Array.isArray(label.keywords)
-        ? label.keywords.map((kw) => kw.trim()).filter(Boolean)
+        ? label.keywords.filter((kw) => typeof kw === "string").map((kw) => kw.trim()).filter(Boolean)
         : [];
       const guidelines = Array.isArray(label.guidelines)
         ? label.guidelines
@@ -213,16 +217,18 @@ function parseLabelsJson(buffer: Buffer) {
           ? label.guidelines.trim()
           : undefined;
 
-      if (!name || !definition || keywords.length === 0) {
+      if (!name || !definition || seen.has(name)) {
         throw new Error(
-          `Label ${idx + 1} must include name, description, and keywords`,
+          `Label ${idx + 1} must include a unique name and description`,
         );
       }
 
+      seen.add(name);
       return {
         name,
         definition,
         keywords,
+        requiresEvidence: label.requiresEvidence !== false,
         ...(guidelines ? { guidelines } : {}),
       };
     });
@@ -258,13 +264,17 @@ export async function failOrphanedSampling() {
   try {
     const coll = getCollection<Task>(TASKS_COLLECTION);
     const res = await coll.updateMany(
-      { status: "sampling_pending" },
+      { status: "sampling_pending", evaluationBuild: { $exists: false } },
       {
         $set: {
           status: "sampling_error",
           updatedAt: new Date().toISOString(),
         } as Partial<Task>,
       },
+    );
+    await coll.updateMany(
+      { "evaluationBuild.phase": { $in: ["sampling", "freezing"] } },
+      { $set: { "evaluationBuild.phase": "error", "evaluationBuild.error": "Sampling was interrupted by a restart. Retry to resume from saved reviews." } },
     );
     if (res.modifiedCount > 0) {
       console.log(
@@ -575,10 +585,21 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
       });
     }
 
+    let demoBaseline = task.demoBaseline;
+    if (!demoBaseline && task.valFile) {
+      try {
+        const rows = parseCsvBuffer(await fs.readFile(getValDatasetPath(path.basename(task.valFile))));
+        demoBaseline = createDemoBaseline(rows, task.columns?.[0] ?? "text", task.labelColumn, task.labels.map((label) => label.name));
+      } catch {
+        // Older tasks without an accessible evaluation CSV remain partial.
+      }
+    }
+
     return res.status(200).json({
       success: true,
       task: {
         ...task,
+        demoBaseline,
         status: task.status ?? "ready",
       },
     });
@@ -591,6 +612,7 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
   }
 }
 
+// Summarize the uploaded labeled evaluation set; full-dataset inference is not required.
 export async function saveTaskCodebook(req: AuthRequest, res: Response) {
   try {
     const userID = req.user?.userId;
@@ -697,12 +719,17 @@ export async function saveFinalInferenceResult(req: AuthRequest, res: Response) 
   if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
   if (!taskId) return res.status(400).json({ success: false, message: "taskId is required" });
   if (!outputFile) return res.status(400).json({ success: false, message: "outputFile is required" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
+  const safeOutputFile = path.basename(outputFile);
+  if (!safeOutputFile.startsWith(annotationOutputPrefix(userID, taskId))) {
+    return res.status(400).json({ success: false, message: "Output file does not belong to this task" });
+  }
 
   try {
     const collection = getCollection<Task>(TASKS_COLLECTION);
     const result = await collection.updateOne(
       { _id: new ObjectId(taskId) as any, userID },
-      { $set: { finalInferenceFile: outputFile, updatedAt: new Date().toISOString() } },
+      { $set: { finalInferenceFile: safeOutputFile, updatedAt: new Date().toISOString() } },
     );
     if (result.matchedCount === 0) {
       return res.status(404).json({ success: false, message: "Task not found" });
@@ -873,11 +900,10 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const taskDescriptionField = req.body.task_description as string | undefined;
     const taskTypeField = req.body.task_type as string | undefined;
     const textColumn = req.body.text_column as string | undefined;
-    const labelColumn = req.body.label_column as string | undefined;
+    const labelColumn = (req.body.label_column as string | undefined) || "__evaluation_labels";
     const modelName = req.body.model_name as string | undefined;
 
     if (
-      !dValFile ||
       !dAllFile ||
       !labelsJsonFile ||
       !labelColumn
@@ -894,7 +920,7 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       return res.status(400).json({
         success: false,
         message:
-          "Missing fields. Expected d_val, d_all, labels_json, label column, and either task_json or task_name + task_description",
+          "Expected d_all, labels_json, and either task_json or task_name + task_description",
       });
     }
 
@@ -907,7 +933,14 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     if (taskJsonFile) {
       console.log("[uploadTaskBundle] Parsing task_json...");
       taskJsonRaw = taskJsonFile.buffer.toString("utf-8");
-      taskInfo = parseTaskJson(taskJsonFile.buffer);
+      try {
+        taskInfo = parseTaskJson(taskJsonFile.buffer);
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid task details file "${taskJsonFile.originalname}": ${error instanceof Error ? error.message : "Expected task JSON"}`,
+        });
+      }
       console.log("[uploadTaskBundle] Task Info parsed from file:", taskInfo.name);
     } else {
       const name = String(taskNameField ?? "").trim();
@@ -933,7 +966,21 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     // Parse Labels JSON
     console.log("[uploadTaskBundle] Parsing labels_json...");
     const labelsJsonRaw = labelsJsonFile.buffer.toString("utf-8");
-    const labels = parseLabelsJson(labelsJsonFile.buffer);
+    let labels: ReturnType<typeof parseLabelsJson>;
+    try {
+      labels = parseLabelsJson(labelsJsonFile.buffer);
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid label set "${labelsJsonFile.originalname}": ${error instanceof Error ? error.message : "Expected labels JSON"}. Select a labels.json file or download the label template.`,
+      });
+    }
+    const batchSize = Number(req.body.evaluation_batch_size ?? 10);
+    const targetPerLabel = Number(req.body.evaluation_target ?? 20);
+    const guideSize = Number(req.body.coverage_n ?? DEFAULT_COVERAGE_SAMPLES);
+    if (!dValFile && (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100 || !Number.isInteger(targetPerLabel) || targetPerLabel < 1 || targetPerLabel > 1000 || !Number.isInteger(guideSize) || guideSize < 1 || guideSize > 1000)) {
+      return res.status(400).json({ success: false, message: "Use a round size of 1–100, a per-label target of 1–1000, and a guide budget of 1–1000." });
+    }
     console.log("[uploadTaskBundle] Labels parsed, count:", labels.length);
 
     // Parse the labeled (val) set fully — it is small. Do NOT materialize the
@@ -959,7 +1006,7 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     }
 
     console.log("[uploadTaskBundle] Parsing val CSV + reading rest header...");
-    const valRows = parseCsvBuffer(dValFile.buffer) as Array<
+    const valRows = (dValFile ? parseCsvBuffer(dValFile.buffer) : []) as Array<
       Record<string, unknown>
     >;
     const restColumns = getCsvColumns(dAllBuffer);
@@ -972,52 +1019,38 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     console.log("[uploadTaskBundle] Validating columns...");
     const valColumns = getColumnsFromRows(valRows);
 
-    if (textColumn) {
-      const hasValText = valColumns.includes(textColumn);
-      const hasValLabel =
-        valColumns.includes(labelColumn) || valColumns.includes("taskLabel");
-      const hasRestText = restColumns.includes(textColumn);
-
-      if (!hasValText || !hasValLabel) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for val data:",
-          valColumns,
-          hasValText,
-          hasValLabel,
-        );
-        return res.status(400).json({
-          success: false,
-          message:
-            "The labeled dataset must include text and task_label columns.",
-        });
-      }
-
-      if (!hasRestText) {
-        console.error(
-          "[uploadTaskBundle] Column validation failed for rest data:",
-          restColumns,
-        );
-        return res.status(400).json({
-          success: false,
-          message: "The unlabeled dataset must include a text column.",
-        });
-      }
+    if (dValFile && textColumn && !valColumns.includes(textColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
+    }
+    if (dValFile && !valColumns.includes(labelColumn)) {
+      return res.status(400).json({
+        success: false,
+        message: `The labeled CSV has no "${labelColumn}" label column. Enter its exact header under Label column name.`,
+      });
+    }
+    if (!restColumns.includes(textColumn || "text")) {
+      return res.status(400).json({
+        success: false,
+        message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
+      });
     }
 
     // Ensure Directories and Write Files
     console.log("[uploadTaskBundle] Step 5: Saving files to disk...");
     ensureRestDatasetsDir();
     ensureValDatasetsDir();
+    ensureUploadsDir();
 
     const uploadFilename = generateUploadFilename(dAllFile.originalname);
-    const valFilename = generateUploadFilename(dValFile.originalname);
+    const valFilename = dValFile ? generateUploadFilename(dValFile.originalname) : undefined;
     const sharedUploadsPath = getUploadsPath(uploadFilename);
-    const valPath = getValDatasetPath(valFilename);
 
     console.log(`[uploadTaskBundle] Writing dall file to ${sharedUploadsPath}`);
     await fs.writeFile(sharedUploadsPath, dAllBuffer, "utf-8");
-    console.log(`[uploadTaskBundle] Writing val file to ${valPath}`);
-    await fs.writeFile(valPath, dValFile.buffer, "utf-8");
+    if (dValFile && valFilename) await fs.writeFile(getValDatasetPath(valFilename), dValFile.buffer);
 
     // DB: Create Task
     console.log("[uploadTaskBundle] Creating task in MongoDB...");
@@ -1032,11 +1065,15 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       file: uploadFilename,
       restFile: uploadFilename,
       valFile: valFilename,
+      valFileName: dValFile?.originalname,
+      inputFileName: dAllFile.originalname,
       columns: textColumn ? [textColumn] : ["text"],
       userID: userID,
       labelColumn: labelColumn,
       modelName: modelName ?? "",
       status: "sampling_pending",
+      ...(!dValFile ? { evaluationBuild: { phase: "collecting" as const, batchSize, targetPerLabel, guideSize, round: 0 } } : {}),
+      demoBaseline: createDemoBaseline(valRows, textColumn ?? "text", labelColumn, labels.map((label) => label.name)),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1058,10 +1095,11 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
           ? Number(req.body.coverage_n)
           : DEFAULT_COVERAGE_SAMPLES,
       use_representative_sampling:
+        req.body.use_representative_sampling === undefined ||
         String(req.body.use_representative_sampling).toLowerCase() === "true",
     };
 
-    void triggerSamplingInBackground({
+    if (dValFile) void triggerSamplingInBackground({
       taskId,
       userID,
       payload: samplingPayload,
@@ -1299,6 +1337,7 @@ export async function deleteTask(req: AuthRequest, res: Response) {
     if (task.valFile) candidateFilenames.add(task.valFile);
 
     const candidatePaths = new Set<string>();
+    if (task.evaluationBuild) candidatePaths.add(getUploadsPath(`.evaluation-${taskId}.npz`));
     for (const filename of candidateFilenames) {
       candidatePaths.add(fileExists(filename).path);
       candidatePaths.add(restFileExists(filename).path);
@@ -1319,6 +1358,7 @@ export async function deleteTask(req: AuthRequest, res: Response) {
       taskDetailsCollection.deleteOne({ _id: taskObjectId as any, userID }),
     ]);
 
+    await getCollection("EvaluationRounds").deleteMany({ taskId });
     if (taskDeleteResult.deletedCount === 0) {
       return res.status(500).json({
         success: false,
@@ -1351,6 +1391,17 @@ export async function downloadAnnotationOutput(req: AuthRequest, res: Response) 
 
   try {
     const safeName = path.basename(filename);
+    const escapedName = safeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const storedPathPattern = new RegExp(`(?:^|[\\\\/])${escapedName}$`);
+    const taskCollection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await taskCollection.findOne({
+      userID: userId,
+      $or: [
+        { finalInferenceFile: storedPathPattern },
+        { outputFile: storedPathPattern },
+      ],
+    });
+    if (!task) return res.status(404).json({ success: false, message: "Output file not found" });
     const filePath = getAnnotationOutputPath(safeName);
     return res.download(filePath, safeName);
   } catch (error: any) {
@@ -1367,10 +1418,18 @@ export async function uploadAnnotationOutput(req: AuthRequest, res: Response) {
   if (!req.file) {
     return res.status(400).json({ success: false, message: "No file provided" });
   }
+  const taskId = String(req.body.taskId ?? "");
+  if (!ObjectId.isValid(taskId)) {
+    return res.status(400).json({ success: false, message: "Valid taskId is required" });
+  }
 
   try {
+    const taskCollection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await taskCollection.findOne({ _id: new ObjectId(taskId) as any, userID: userId });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+
     ensureAnnotationOutputsDir();
-    const filename = generateUploadFilename(req.file.originalname);
+    const filename = `${annotationOutputPrefix(userId, taskId)}${generateUploadFilename(req.file.originalname)}`;
     const outputPath = getAnnotationOutputPath(filename);
     await fs.writeFile(outputPath, req.file.buffer);
     return res.status(200).json({ success: true, filePath: filename });
@@ -1388,6 +1447,10 @@ export async function createAutoLabelTask(req: AuthRequest, res: Response) {
 
   try {
     const body = req.body as CreateAutoLabelTaskRequest;
+    const safeOutputFile = path.basename(body.outputFile);
+    if (!safeOutputFile.startsWith(annotationOutputOwnerPrefix(userID))) {
+      return res.status(400).json({ success: false, message: "Output file does not belong to this user" });
+    }
     const taskData: Omit<Task, "_id"> = {
       name: body.name,
       description: body.description,
@@ -1396,7 +1459,7 @@ export async function createAutoLabelTask(req: AuthRequest, res: Response) {
       codebook: body.codebook,
       columns: body.columns,
       file: body.file,
-      outputFile: body.outputFile,
+      outputFile: safeOutputFile,
       inputFileName: body.inputFileName,
       modelName: body.modelName,
       labelColumn: body.labelColumn,
@@ -1500,11 +1563,20 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
     const finalCodebook = Array.isArray(codebook) ? codebook : task.codebook ?? [];
     const userInput = finalCodebook.join("\n") || null;
     const textColumn = task.columns?.[0] || "text";
+    const runId = randomUUID();
+    const claim = await collection.updateOne(
+      { _id: task._id as any, userID, finalInferenceStatus: { $ne: "running" } },
+      {
+        $set: { finalInferenceStatus: "running", finalInferenceRunId: runId, updatedAt: new Date().toISOString() },
+        $unset: { finalInferenceFile: "" },
+      },
+    );
+    if (!claim.modifiedCount) {
+      return res.status(409).json({ success: false, message: "Full-dataset inference is already running" });
+    }
 
-    // Fire-and-forget: pybackend reads d_all from shared_uploads/ and runs the
-    // job in the background keyed by job_id === taskId.
-    void axios
-      .post(
+    // Wait for Python to accept the job before exposing Cancel.
+    await axios.post(
         `${ML_BASE_URL}/inference/auto-label`,
         {
           file_path: task.restFile,
@@ -1517,9 +1589,13 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
           job_id: taskId,
         },
         { timeout: 3_600_000 },
-      )
-      .catch((err: Error) => {
-        console.error("[startFinalInference] Python job error:", err.message);
+      ).then(() => { void watchFinalInference(taskId, userID, runId); })
+      .catch(async (error: Error) => {
+        await collection.updateOne(
+          { _id: task._id as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" },
+          { $set: { finalInferenceStatus: "error", updatedAt: new Date().toISOString() } },
+        );
+        throw error;
       });
 
     return res.status(200).json({ success: true, taskId });
@@ -1531,13 +1607,100 @@ export async function startFinalInference(req: AuthRequest, res: Response) {
   }
 }
 
+export async function cancelFinalInference(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  const { taskId } = req.body as { taskId?: string };
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (!taskId || !ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Valid taskId is required" });
+
+  try {
+    const collection = getCollection<Task>(TASKS_COLLECTION);
+    const task = await collection.findOne({ _id: new ObjectId(taskId) as any, userID });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+    if (task.finalInferenceStatus === "cancelled") return res.json({ success: true });
+    if (task.finalInferenceStatus !== "running" || !task.finalInferenceRunId) {
+      return res.status(409).json({ success: false, message: "No full-dataset inference is running" });
+    }
+
+    await axios.post(`${ML_BASE_URL}/inference/auto-label/cancel/${taskId}`, {}, { timeout: 5_000 });
+    const result = await collection.updateOne(
+      { _id: task._id as any, userID, finalInferenceRunId: task.finalInferenceRunId, finalInferenceStatus: { $in: ["running", "error"] } },
+      { $set: { finalInferenceStatus: "cancelled", updatedAt: new Date().toISOString() }, $unset: { finalInferenceFile: "" } },
+    );
+    if (!result.modifiedCount) {
+      return res.status(409).json({ success: false, message: "Inference finished before cancellation" });
+    }
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(502).json({ success: false, message: error.message || "Could not cancel full-dataset inference" });
+  }
+}
+
+async function persistFinalInferenceRows(taskId: string, userID: string, runId: string, rows: Array<Record<string, string>>) {
+  const collection = getCollection<Task>(TASKS_COLLECTION);
+  const filter = { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" as const };
+  const current = await collection.findOne(filter);
+  if (!current) return undefined;
+  if (!rows.length) throw new Error("Final inference returned no records");
+  ensureAnnotationOutputsDir();
+  const filename = `${annotationOutputPrefix(userID, taskId)}labeled-d-all-${runId}.csv`;
+  const destination = getAnnotationOutputPath(filename);
+  const temporary = `${destination}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, Papa.unparse(rows), "utf8");
+    await fs.rename(temporary, destination);
+    const saved = await collection.updateOne(filter, {
+      $set: { finalInferenceFile: filename, finalInferenceStatus: "ready", updatedAt: new Date().toISOString() },
+    });
+    return saved.modifiedCount ? filename : undefined;
+  } finally {
+    await fs.unlink(temporary).catch(() => undefined);
+  }
+}
+
+async function watchFinalInference(taskId: string, userID: string, runId: string) {
+  for (let attempt = 0; attempt < 1800; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const { data } = await axios.get(`${ML_BASE_URL}/inference/auto-label/progress/${taskId}`, { timeout: 10_000 });
+      if (!data.done) continue;
+      if (data.error) throw new Error(String(data.error));
+      await persistFinalInferenceRows(taskId, userID, runId, data.rows ?? []);
+      return;
+    } catch (error) {
+      if (axios.isAxiosError(error)) continue;
+      console.error("[startFinalInference] Failed to persist output:", error);
+      break;
+    }
+  }
+  await getCollection<Task>(TASKS_COLLECTION).updateOne(
+    { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" },
+    { $set: { finalInferenceStatus: "error", updatedAt: new Date().toISOString() } },
+  );
+}
+
 export async function getAutoLabelProgress(req: AuthRequest, res: Response) {
   const { taskId } = req.params;
+  const userID = req.user?.userId;
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
   try {
+    const task = await getCollection<Task>(TASKS_COLLECTION).findOne({ _id: new ObjectId(taskId) as any, userID });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+    if (task.finalInferenceStatus === "cancelled")
+      return res.json({ completed: 0, total: 0, done: true, cancelled: true });
     const { data } = await axios.get(
       `${ML_BASE_URL}/inference/auto-label/progress/${taskId}`,
       { timeout: 5_000 },
     );
+    if (task.finalInferenceStatus === "ready" && task.finalInferenceFile)
+      return res.json({ ...data, outputFile: task.finalInferenceFile });
+    if (task.finalInferenceStatus === "error")
+      return res.json({ ...data, done: true, error: data.error || "Full-dataset inference failed" });
+    if (data.done && !data.error && task.finalInferenceStatus === "running" && task.finalInferenceRunId) {
+      const outputFile = await persistFinalInferenceRows(taskId, userID, task.finalInferenceRunId, data.rows ?? []);
+      return res.json({ ...data, outputFile });
+    }
     return res.json(data);
   } catch {
     return res.json({ completed: 0, total: 0, done: false });
@@ -1546,15 +1709,31 @@ export async function getAutoLabelProgress(req: AuthRequest, res: Response) {
 
 export async function completeAutoLabel(req: AuthRequest, res: Response) {
   try {
+    const userID = req.user?.userId;
     const { taskId } = req.params;
     const { outputFile } = req.body as { outputFile: string };
+    if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!ObjectId.isValid(taskId)) return res.status(400).json({ success: false, message: "Invalid task ID" });
+    const safeOutputFile = path.basename(outputFile);
+    if (!safeOutputFile.startsWith(annotationOutputPrefix(userID, taskId))) {
+      return res.status(400).json({ success: false, message: "Output file does not belong to this task" });
+    }
     const collection = getCollection<Task>(TASKS_COLLECTION);
-    await collection.updateOne(
-      { _id: new ObjectId(taskId) as any },
-      { $set: { status: "auto_label_complete", outputFile, updatedAt: new Date().toISOString() } },
+    const result = await collection.updateOne(
+      { _id: new ObjectId(taskId) as any, userID },
+      { $set: { status: "auto_label_complete", outputFile: safeOutputFile, updatedAt: new Date().toISOString() } },
     );
+    if (result.matchedCount === 0) return res.status(404).json({ success: false, message: "Task not found" });
     return res.json({ success: true });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error.message });
   }
+}
+
+function annotationOutputOwnerPrefix(userID: string) {
+  return `${Buffer.from(userID).toString("base64url")}-`;
+}
+
+function annotationOutputPrefix(userID: string, taskId: string) {
+  return `${annotationOutputOwnerPrefix(userID)}${taskId}-`;
 }

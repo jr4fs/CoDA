@@ -1,15 +1,15 @@
-# Annotation Assistant
 
-**Human-in-the-loop codebook development for LLM-assisted text annotation.**
+# CoDA: A Human-LM Collaborative Codebook Development Assistant for Domain-Specific Text Annotation
 
-Annotation Assistant turns the human effort in large-scale text labeling from
-*annotating every example* into *teaching the model how to label*. You review a
-small, representative sample of your data alongside an LLM's predictions; every
-correction is distilled into an explicit, versioned **codebook** of rules that
-guides the model on the rest of the corpus. The result is a validated, exportable
-labeling policy — not just a labeled file — that can drive annotation at scale.
+We present CoDA, an open-source human-LM collaborative codebook development assistant that helps domain experts develop annotation guidelines for annotating new variables in unstructured text with language models.
+Existing language model annotation systems primarily focus on downstream classification performance, while assuming the availability of high-quality annotation guidelines, or codebooks. 
+In practice, developing these codebooks is time-consuming and challenging, particularly for concepts that require expert knowledge.
+CoDA addresses this gap by collaborating with domain experts to iteratively develop codebooks through targeted review of incorrect language model predictions and incorporating expert feedback into the evolving codebook.
 
-## Key features
+Navigate to: https://coda.44.218.57.167.sslip.io/, check out instructions under https://github.com/jr4fs/CoDA/tree/main/sample_dataset for a quick tutorial. 
+Please reach out to jranjit@usc.edu if you would like a provisioned account for your own use case (deployed on AWS). Otherwise, please see instructions below to setup CoDA on your own infrastructure. Be on the lookout for a pip installable package coming soon! 
+
+## Features
 
 - **Guided sampling.** Representative + coverage sampling over sentence embeddings
   selects a diverse "guide set" from a large unlabeled pool, so a small review
@@ -23,7 +23,7 @@ labeling policy — not just a labeled file — that can drive annotation at sca
   inference over the entire dataset.
 - **Provider-agnostic.** LLM via OpenRouter or local Ollama; embeddings via
   OpenAI, Amazon Bedrock, or in-process (mpnet) — switchable with env vars.
-- **Interactive demo** at the `/demo` route (fully mocked, no backend or keys).
+- **sample_dataset/** at the `/demo` route (fully mocked, no backend or keys).
 
 ## How it works
 
@@ -112,9 +112,8 @@ and `local` as shown above.
   backend-for-frontend (authentication, task management, file storage, ML proxy),
   and a Python/FastAPI ML service (embeddings, sampling, anonymization, LLM calls).
   Shared TypeScript types; MongoDB for persistence.
-- **Deployment (Docker + AWS).** Containerized with Docker Compose and provisioned
-  on AWS with Terraform via a single idempotent `deploy.sh` (EC2 + Elastic IP,
-  Caddy auto-HTTPS). The same stack runs locally with one Docker command.
+- **Deployment.** Docker Compose runs locally or on AWS, where Terraform provisions
+  EC2 and Caddy provides HTTPS.
 - **Open-source & reproducible.** Fully open-source and reproducible from a single
   repo-root `.env` plus one-command Docker or Terraform-driven deploys; seeded
   sampling and versioned, exportable codebooks make runs repeatable.
@@ -128,11 +127,9 @@ and `local` as shown above.
   (FIFO) behind a memory guard; validation and full-dataset inference fan out
   concurrently; and large dataset uploads are gzip-compressed.
 - **Data storage & APIs** — switchable via env (`LLM_PROVIDER`,
-  `EMBEDDINGS_PROVIDER`, `DB_CONN_STRING`), with three target environments:
+  `EMBEDDINGS_PROVIDER`, `DB_CONN_STRING`), with two target environments:
   - **Public AWS deployment** — MongoDB Atlas, OpenRouter (LLM), and OpenAI or
     Amazon Bedrock (embeddings), behind Caddy auto-HTTPS on a single EC2 VM.
-  - **Hosted on CARC** — the same containers run on the CARC research-computing
-    cluster for institutionally hosted compute and data.
   - **Local with Ollama** — MongoDB in a container, LLM inference via a local
     Ollama server, and embeddings computed in-process (mpnet); no external API
     keys or data egress.
@@ -147,4 +144,24 @@ common/       Shared TypeScript types
 deploy/       Terraform + Compose overlays + deploy.sh (AWS)
 docs/         Setup & deployment guides
 sample_dataset/  Ready-to-upload demo bundle
+```
+
+## Please cite our work
+
+```
+@inproceedings{ranjit2026coda,
+  title={CoDA: A Human-LM Collaborative Codebook Development Assistant for Domain-Specific Text Annotation},
+  author={Ranjit, Jaspreet and Chellappa, Swaminathan and Rivas Costante, Augusto and Manjunath, Chandan and Onasch-Vera, Laura and Hailey, Winetrobe Nadel and Rice, Eric and Swayamdipta, Swabha},
+  booktitle={Proceedings of the 2026 Conference on Empirical Methods in Natural Language Processing: System Demonstrations},
+  year={2026}
+}
+
+@inproceedings{ranjit2026uncovering,
+  title={Uncovering Intervention Opportunities for Suicide Prevention with Language Model Assistants},
+  author={Ranjit, Jaspreet and Cho, Hyundong Justin and Smerdon, Claire J and Nam, Yoonsoo and Phung, Myles and May, Jonathan and Blosnich, John R and Swayamdipta, Swabha},
+  booktitle={Proceedings of the 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)},
+  pages={15072--15092},
+  year={2026}
+}
+
 ```

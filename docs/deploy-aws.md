@@ -54,9 +54,14 @@ cp deploy/config.env.example deploy/config.env
 $EDITOR deploy/config.env
 ```
 Set: `DB_CONN_STRING`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ACME_EMAIL`, and
-(optionally) `ADMIN_EMAIL`/`ADMIN_PASSWORD` for your first login. Leave `DOMAIN`
-blank to get a free `annotate.<ip>.sslip.io` hostname. Leave `SSH_CIDR=auto`.
+(optionally) `ADMIN_EMAIL`/`ADMIN_PASSWORD` for your first login. For the
+existing deployment, keep its pinned `DOMAIN` and `AMI_ID`; for a new instance,
+leave `DOMAIN` blank to get an `annotate.<ip>.sslip.io` hostname. Leave
+`SSH_CIDR=auto` unless you need additional deployer addresses.
 JWT secrets are generated for you — don't set them. `config.env` is git-ignored.
+For this AWS branch, set `GIT_BRANCH=dbgm` in `deploy/config.env`; the script
+checks out that branch on the instance. An existing `config.env` is not updated
+when you pull this repository.
 
 ## 4. Deploy
 ```bash
