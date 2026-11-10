@@ -192,7 +192,7 @@ function EvaluationSetupCard({
     ["Model", task.modelName || "—"],
     ["Budget", budget > 0 ? `${budget} Samples` : "—"],
     ["Reviewed", reviewed === null || reviewed === undefined ? "—" : budget > 0 ? `${reviewed}/${budget}` : String(reviewed)],
-    ["Evaluation Set", getFileName(task.valFileName ?? task.valFile)],
+    ["D_val", getFileName(task.valFileName ?? task.valFile)],
     ["Dataset", getFileName(task.inputFileName ?? task.file)],
   ];
 

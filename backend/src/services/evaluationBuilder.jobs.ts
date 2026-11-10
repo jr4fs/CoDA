@@ -1,5 +1,6 @@
 import type { Task } from "@common/types/tasks";
 import type { EvaluationRecord } from "@common/types/evaluationBuilder";
+import type { AnnotationItem } from "@common/types/annotations";
 import axios from "axios";
 import fs from "fs/promises";
 import path from "path";
@@ -17,6 +18,10 @@ async function sample(
   quotas: Record<string, number>,
   excluded: string[],
   guide = false,
+  examples: Record<string, string[]> = {},
+  iteration = 0,
+  excludedTexts: string[] = [],
+  guideIds: string[] = [],
 ) {
   const { data } = await axios.post<{
     totalRecords: number;
@@ -29,8 +34,18 @@ async function sample(
       file_path: task.file,
       text_col: task.columns,
       queries,
+      examples,
       quotas,
       excluded,
+      excluded_texts: excludedTexts,
+      guide_ids: guideIds,
+      iteration,
+      seed: Number.parseInt(
+        crypto.createHash("sha256")
+          .update(`${task.samplingSeed ?? task._id}:${guide ? "guide" : "val"}:${iteration}`)
+          .digest("hex").slice(0, 8),
+        16,
+      ),
       export_guide: guide,
     },
     { timeout },
@@ -45,6 +60,12 @@ function initialQueries(task: Task) {
       [`${label.name}: ${label.definition}`, ...label.keywords],
     ]),
   );
+}
+
+function samplingQueries(task: Task) {
+  return task.samplingVersion === 2
+    ? Object.fromEntries(task.labels.map((label) => [label.name, label.keywords]))
+    : initialQueries(task);
 }
 
 export async function failJob(task: Task, jobId: string, error: unknown) {
@@ -98,7 +119,7 @@ export async function generateRound(task: Task, jobId: string) {
     Object.entries(allocation).sort(([a], [b]) => counts[a] - counts[b]),
   );
   const number = history.length + 1;
-  const queries = initialQueries(task);
+  const queries = samplingQueries(task);
   for (const label of task.labels) {
     const spans = [
       ...new Set(
@@ -126,7 +147,18 @@ export async function generateRound(task: Task, jobId: string) {
     );
     queries[label.name].push(...spans.slice(0, 2));
   }
-  const result = await sample(task, queries, quotas, excluded);
+  const examples = task.samplingVersion === 2
+    ? Object.fromEntries(task.labels.map((label) => [
+        label.name,
+        history.flatMap((round) => round.records
+          .filter((record) => record.labels.includes(label.name))
+          .map((record) => record.text)),
+      ]))
+    : {};
+  const result = await sample(
+    task, queries, quotas, excluded, false, examples,
+    task.samplingVersion === 2 ? history.length : -1,
+  );
   const filter = {
     ...taskFilter(task._id!, task.userID),
     "evaluationBuild.jobId": jobId,
@@ -185,26 +217,13 @@ export async function finishEvaluation(task: Task, jobId: string) {
   );
   await fs.writeFile(temporary, Papa.unparse(valRows), "utf8");
   await fs.rename(temporary, destination);
-  const zeroCounts = Object.fromEntries(
-    task.labels.map((label) => [label.name, 0]),
+  const guideCount = await generateGuideBatch(
+    task, records.map((r) => r.recordId), records.map((r) => r.text),
   );
-  const quotas = allocateQuotas(
-    zeroCounts,
-    1,
-    Math.min(
-      task.evaluationBuild!.guideSize,
-      (task.evaluationBuild!.eligibleRecords ?? 0) - records.length,
-    ),
-  );
-  // Evaluation evidence never enters guide queries or the model's label definitions.
-  const guide = await sample(
-    task,
-    initialQueries(task),
-    quotas,
-    records.map((r) => r.recordId),
-    true,
-  );
-  if (!guide.records.length)
+  const savedGuideCount = guideCount || await getCollection(
+    process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails",
+  ).countDocuments({ taskId: task._id, source: "guide" });
+  if (!savedGuideCount)
     throw new Error(
       "No guide records are available outside the evaluation set.",
     );
@@ -213,30 +232,6 @@ export async function finishEvaluation(task: Task, jobId: string) {
     "evaluationBuild.jobId": jobId,
   };
   if (!(await tasks().findOne(filter))) return;
-  const annotations = getCollection(
-    process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails",
-  );
-  await annotations.bulkWrite(
-    guide.records.map((record, index) => ({
-      updateOne: {
-        filter: { taskId: task._id, source: "guide", sampleId: index + 1 },
-        update: {
-          $setOnInsert: {
-            taskId: task._id,
-            source: "guide",
-            sampleId: index + 1,
-            recordId: record.recordId,
-            sampleContent: record.sampleContent,
-            labels: [],
-            aiAnnotation: null,
-            createdBy: task.userID,
-            createdAt: new Date().toISOString(),
-          },
-        },
-        upsert: true,
-      },
-    })),
-  );
   const baselineRows = records.map((r) => ({
     text: r.text,
     labels: JSON.stringify(r.labels),
@@ -258,4 +253,67 @@ export async function finishEvaluation(task: Task, jobId: string) {
     },
     $unset: { "evaluationBuild.error": "" },
   });
+}
+
+export async function generateGuideBatch(
+  task: Task, valIds: string[] = [], valTexts: string[] = [],
+) {
+  const annotations = getCollection<AnnotationItem & { recordId: string }>(
+    process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails",
+  );
+  const previous = await annotations.find({ taskId: task._id!, source: "guide" })
+    .sort({ sampleId: 1 }).toArray();
+  const budget = task.guideBudget ?? task.evaluationBuild?.guideSize ?? 15;
+  if (previous.length >= budget || previous.some((item) => item.aiAnnotation?.isCorrect == null))
+    return 0;
+  const batchSize = task.samplingVersion === 2
+    ? Math.min(5, budget - previous.length)
+    : budget - previous.length;
+  const counts = Object.fromEntries(task.labels.map((label) => [
+    label.name, previous.filter((item) => item.labels.includes(label.name)).length,
+  ]));
+  const quotas = allocateQuotas(counts, Number.MAX_SAFE_INTEGER, batchSize);
+  const examples = Object.fromEntries(task.labels.map((label) => [
+    label.name,
+    previous.filter((item) => item.labels.includes(label.name))
+      .map((item) => String(item.sampleContent.text_combined ?? item.sampleContent[task.columns[0]] ?? "")),
+  ]));
+  let excludedTexts = valTexts;
+  if (task.valFile && !valIds.length) {
+    const csv = await fs.readFile(getValDatasetPath(task.valFile), "utf8");
+    const rows = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true }).data;
+    valIds = rows.map((row) => row.__evaluation_record_id).filter(Boolean);
+    excludedTexts = rows.map((row) => row[task.columns[0]] ?? row.__evaluation_text ?? "")
+      .filter(Boolean);
+  }
+  const previousIds = previous.map((item) => item.recordId);
+  const iteration = task.samplingVersion === 2 ? (previous.length ? Math.ceil(previous.length / 5) : 0) : -1;
+  const guide = await sample(
+    task, samplingQueries(task), quotas, [...valIds, ...previousIds], true,
+    examples, iteration, excludedTexts, previousIds,
+  );
+  if (guide.records.length) await annotations.bulkWrite(guide.records.map((record, index) => ({
+    updateOne: {
+      filter: { taskId: task._id, source: "guide", recordId: record.recordId },
+      update: {
+        $setOnInsert: {
+          taskId: task._id,
+          source: "guide",
+          sampleId: previous.length + index + 1,
+          recordId: record.recordId,
+          sampleContent: record.sampleContent,
+          labels: [],
+          aiAnnotation: null,
+          createdBy: task.userID,
+          createdAt: new Date().toISOString(),
+        },
+      },
+      upsert: true,
+    },
+  })));
+  if (guide.records.length && task.samplingVersion === 2) await tasks().updateOne(
+    taskFilter(task._id!, task.userID),
+    { $set: { guideSamplingRound: iteration + 1 } },
+  );
+  return guide.records.length;
 }

@@ -24,7 +24,7 @@ import {
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
-import { getTaskById } from "@/services/tasks.service";
+import { continueGuideReview, getTaskById } from "@/services/tasks.service";
 import {
   isDashboardTabId,
   type DashboardTabId,
@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [evaluationReviewed, setEvaluationReviewed] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
+  const [guideLoading, setGuideLoading] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const evaluationRunRef = useRef(0);
 
@@ -147,6 +148,18 @@ export default function DashboardPage() {
     setSearchParams(nextParams);
   };
 
+  const handleContinueGuide = async () => {
+    if (!taskId) return;
+    setGuideLoading(true);
+    try {
+      await continueGuideReview(taskId);
+      navigate(`/codebook-creation/${taskId}`);
+    } catch (error) {
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Could not continue D_guide" : "Could not continue D_guide");
+      setGuideLoading(false);
+    }
+  };
+
   const handleRunEvaluation = async () => {
     if (!taskId) return;
     const runId = ++evaluationRunRef.current;
@@ -207,9 +220,9 @@ export default function DashboardPage() {
       await cancelValEval(taskId);
       evaluationRunRef.current += 1;
       setIsRunning(false);
-      toast.success("D_eval evaluation cancelled");
+      toast.success("D_val evaluation cancelled");
     } catch {
-      toast.error("Could not cancel D_eval evaluation. Please try again.");
+      toast.error("Could not cancel D_val evaluation. Please try again.");
     }
   };
 
@@ -292,6 +305,10 @@ export default function DashboardPage() {
           onRunEvaluation={handleRunEvaluation}
           onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
           onCreateTask={() => navigate("/new-codebook")}
+          onContinueGuide={() => void handleContinueGuide()}
+          guidePending={annotations.some((item) => item.source === "guide" && item.aiAnnotation?.isCorrect == null) ||
+            annotations.filter((item) => item.source === "guide").length < (task.guideBudget ?? 15)}
+          guideLoading={guideLoading}
         />
 
         {isRunning && (
@@ -302,13 +319,13 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
               <span>
                 {progress.total > 0
-                  ? `D_eval: ${progress.completed} of ${progress.total} rows evaluated`
-                  : "Starting D_eval evaluation…"}
+                  ? `D_val: ${progress.completed} of ${progress.total} rows evaluated`
+                  : "Starting D_val evaluation…"}
               </span>
               <div className="flex items-center gap-4">
                 {progress.total > 0 && <span className="font-dashboard text-foreground">{Math.round(progressPercent)}%</span>}
                 <button type="button" onClick={handleCancelEvaluation} className="min-h-10 rounded-md px-2 text-destructive hover:bg-muted">
-                  Cancel D_eval
+                  Cancel D_val
                 </button>
               </div>
             </div>

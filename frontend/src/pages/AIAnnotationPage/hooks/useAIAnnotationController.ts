@@ -22,6 +22,8 @@ import {
   saveTaskCodebook,
   startFinalInference,
   getTaskById,
+  nextGuideRound,
+  continueGuideReview,
 } from "../../../services/tasks.service";
 import { downloadContent } from "../../../utils/downloadContent";
 import { INTRO_STORAGE_KEY } from "../constants";
@@ -71,6 +73,20 @@ export const useAIAnnotationController = () => {
     taskStatus: task?.status,
     refreshTaskData,
   });
+  const [retryingSampling, setRetryingSampling] = useState(false);
+  const retrySampling = async () => {
+    if (!task?._id) return;
+    setRetryingSampling(true);
+    try {
+      await continueGuideReview(task._id);
+      await refreshTaskData();
+      samplingState.resetStatus();
+    } catch (error) {
+      toast.error("Sampling retry failed. Please try again.");
+    } finally {
+      setRetryingSampling(false);
+    }
+  };
 
   const codebookState = useCodebookManager({ task });
   const hasPriorReview = Boolean(task?.codebookComplete || guideAnnotations.some(
@@ -287,7 +303,9 @@ export const useAIAnnotationController = () => {
             ai_labels: result.label,
             ai_reasoning: result.reason,
             ai_span_text: result.span_text,
-            ground_truth_labels: result.correctLabel
+            ground_truth_labels: result.correctLabels?.length
+              ? result.correctLabels
+              : result.correctLabel
               ? [result.correctLabel]
               : task?.labels.map((item) => item.name) || [],
             user_feedback: result.feedback,
@@ -393,7 +411,23 @@ export const useAIAnnotationController = () => {
       }
     }
 
-    await reviewState.handleNextClick();
+    if (!await reviewState.handleNextClick()) return;
+
+    if (shouldGenerateMetrics && task?.samplingVersion === 2 && task._id && reviewState.totalSamples < (task.guideBudget ?? 15)) {
+      try {
+        const next = await nextGuideRound(task._id);
+        if (next.count > 0) {
+          const nextIndex = reviewState.totalSamples;
+          await refreshTaskData();
+          reviewState.setCurrentIndex(nextIndex);
+          return;
+        }
+      } catch (error) {
+        console.error("Guide sampling failed:", error);
+        toast.error("Could not sample the next D_guide batch. Retry the batch action.");
+        return;
+      }
+    }
 
     if (shouldGenerateMetrics && task?._id) {
       await finalizeReview(committedCodebook);
@@ -631,6 +665,7 @@ export const useAIAnnotationController = () => {
       const predicted = Array.isArray(result.label) ? result.label : [];
       let truth: string[];
       if (result.isCorrect) truth = predicted;
+      else if (result.correctLabels?.length) truth = result.correctLabels;
       else if (result.correctLabel) truth = [result.correctLabel];
       else continue;
       pairs.push({ predicted, truth });
@@ -650,6 +685,8 @@ export const useAIAnnotationController = () => {
     effectiveStatus: samplingState.effectiveStatus,
     samplingErrorMsg: samplingState.samplingErrorMsg,
     samplingQueuePosition: samplingState.queuePosition,
+    retrySampling,
+    retryingSampling,
 
     ...introState,
 
@@ -726,6 +763,7 @@ export const useAIAnnotationController = () => {
     setSpanTextFeedback: reviewState.setSpanTextFeedback,
     setReasoningFeedback: reviewState.setReasoningFeedback,
     setCurrentCorrectLabel: reviewState.setCurrentCorrectLabel,
+    setCurrentCorrectLabels: reviewState.setCurrentCorrectLabels,
     setCurrentFeedback: reviewState.setCurrentFeedback,
 
     addRule: codebookState.addRule,

@@ -94,7 +94,7 @@ export function EvaluationRoundEditor({
       </Group>
       <Group justify="space-between">
         <Text size="xs" c="dimmed">
-          Evaluation set · Round {round.number}
+          D_val · Round {round.number}
         </Text>
         <Badge
           color={dirty ? "yellow" : draft.reviewed ? "green" : "gray"}

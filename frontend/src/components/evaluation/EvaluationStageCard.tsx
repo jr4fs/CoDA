@@ -39,7 +39,7 @@ export function EvaluationStageCard({
           </Title>
           <Text c="dimmed" ta="center">
             {freezing
-              ? "Freezing your evaluation set and sampling separate guide records."
+              ? "Freezing D_val and sampling separate D_guide records."
               : "Searching by label and selecting a diverse batch. The first round also builds the embedding cache and may take a few minutes."}
           </Text>
           <Text size="sm" c="dimmed">
@@ -53,7 +53,7 @@ export function EvaluationStageCard({
     return (
       <Paper p="xl" withBorder radius="md">
         <Stack>
-          <Title order={3}>Your evaluation set is ready</Title>
+          <Title order={3}>D_val is ready</Title>
           <Text>
             {state.reviewedCount} reviewed narratives are frozen. Codebook
             review uses separate records from your dataset.
@@ -83,7 +83,7 @@ export function EvaluationStageCard({
         <Title order={3}>{title}</Title>
         <Text>{description}</Text>
         <Text size="sm" c="dimmed">
-          This deliberately enriched evaluation set measures performance on
+          This deliberately enriched D_val measures performance on
           these reviewed examples. Its label counts do not estimate prevalence
           in your full dataset.
         </Text>
@@ -101,7 +101,7 @@ export function EvaluationStageCard({
             onClick={canFinish ? onFreeze : onNext}
           >
             {canFinish
-              ? "Freeze evaluation set and prepare codebook review"
+              ? "Freeze D_val and prepare codebook review"
               : state.round
                 ? "Find next round"
                 : "Find first round"}

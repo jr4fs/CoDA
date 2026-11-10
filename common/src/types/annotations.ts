@@ -21,6 +21,7 @@ export interface AIAssisted {
   spanFeedback: boolean | null;
   reasoningFeedback: boolean | null;
   correctLabel?: string | null;
+  correctLabels?: string[];
   predictionRaw?: string | null;
   timeToCompleteMs?: number | null;
   codebookSnapshot?: string[];

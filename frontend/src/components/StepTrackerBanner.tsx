@@ -23,7 +23,7 @@ export default function StepTrackerBanner({
   onHelp,
   helpLabel = "About this step",
 }: StepTrackerBannerProps) {
-  const displaySteps = evaluationFlow ? ["Upload task", "Build evaluation set", "AI annotation review", "Codebook completion"] : steps;
+  const displaySteps = evaluationFlow ? ["Upload task", "Build D_val", "AI annotation review", "Codebook completion"] : steps;
   const activeList =
     activeSteps && activeSteps.length > 0 ? activeSteps : [currentStep];
   const activeSet = new Set(activeList);

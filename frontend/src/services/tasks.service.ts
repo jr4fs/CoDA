@@ -187,6 +187,11 @@ export async function getTaskById(taskId: string) {
   return data;
 }
 
+export async function nextGuideRound(taskId: string): Promise<{ success: boolean; count: number }> {
+  const { data } = await apiClient.post(`/api/tasks/${taskId}/guide/next`);
+  return data;
+}
+
 export async function getCsvData(fileName: string, valFileName?: string) {
   const valQuery = valFileName
     ? `?valFile=${encodeURIComponent(valFileName)}`
@@ -294,6 +299,14 @@ export async function markCodebookComplete(
   const { data } = await apiClient.post<{ success: boolean; message?: string }>(
     "/api/tasks/complete",
     { taskId, metricsFiles },
+  );
+  return data;
+}
+
+export async function continueGuideReview(taskId: string): Promise<{ success: boolean; count: number }> {
+  const { data } = await apiClient.post<{ success: boolean; count: number }>(
+    `/api/tasks/${encodeURIComponent(taskId)}/guide/next`,
+    { continue: true },
   );
   return data;
 }
