@@ -176,9 +176,9 @@ export default function DatasetUploadPage() {
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<UploadConfig>(defaultUploadConfig);
   useEffect(() => {
-    if (liveModelOptions.some((option) => option.value === "qwen2.5:32b")) {
+    if (liveModelOptions.some((option) => option.value === "qwen:32b")) {
       setConfig((current) => current.selectedModel === defaultUploadConfig.selectedModel
-        ? { ...current, selectedModel: "qwen2.5:32b" }
+        ? { ...current, selectedModel: "qwen:32b" }
         : current);
     }
   }, [liveModelOptions]);

@@ -181,7 +181,7 @@ MODEL_KEYS = [
     "qwen2.5:72b",
     "llama3.3:70b",
 ]
-SELECTABLE_MODEL_KEYS = [key for key in MODEL_KEYS if key != "qwen:32b"]
+SELECTABLE_MODEL_KEYS = MODEL_KEYS
 
 # Default mapping from friendly key -> OpenRouter model slug. Slugs occasionally
 # change in the OpenRouter catalogue (https://openrouter.ai/models); override any
@@ -200,7 +200,7 @@ DEFAULT_OPENROUTER_MODEL_MAP = {
 
 def selectable_model_keys(provider: str) -> List[str]:
     if provider == "openrouter":
-        return [key for key in SELECTABLE_MODEL_KEYS if key != "qwen2.5:32b"]
+        return [key for key in SELECTABLE_MODEL_KEYS if key not in ("qwen:32b", "qwen2.5:32b")]
     return SELECTABLE_MODEL_KEYS
 
 
