@@ -67,12 +67,12 @@ export default function ModelPerformance({
   return (
     <div className="grid gap-4">
       {!task.evalResults && <p className="text-xs leading-5 text-[#667085]" role="status">
-        Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on the evaluation set only.
+        Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on D_val only.
       </p>}
       {!baseline && <p className="text-xs leading-5 text-[#667085]" role="status">
         {baselineRecorded
           ? task.evalResults
-            ? "A comparable initial evaluation is unavailable for this evaluation set."
+            ? "A comparable initial evaluation is unavailable for D_val."
             : "The initial evaluation is saved; comparisons will appear after the final evaluation."
           : "No comparison reference is available for this task."}
       </p>}
@@ -381,7 +381,7 @@ function MetricBreakdownCard({
             />
             <MetricDefinition
               term="Recall"
-              definition="Of the correct labels in the evaluation set, how many the model found."
+              definition="Of the correct labels in D_val, how many the model found."
             />
           </dl>
         </>

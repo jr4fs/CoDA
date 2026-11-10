@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { CreateAutoLabelTaskRequest, CreateTaskRequest, StartAutoLabelJobRequest, Task } from "@common/types/tasks";
-import { EmbedDatasetRequest } from "@common/types/embedding";
 import { AnonymizeConfig } from "@common/types/anonymize";
 import { getCollection } from "./database.service";
 import {
@@ -25,9 +24,11 @@ import path from "path";
 import dotenv from "dotenv";
 import axios from "axios";
 import zlib from "zlib";
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { AnnotationItem } from "@common/types/annotations";
 import { createDemoBaseline } from "../utils/demoBaseline";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
+import { generateGuideBatch } from "./evaluationBuilder.jobs";
 dotenv.config();
 
 interface TaskValidation {
@@ -54,7 +55,6 @@ const GENERATED_CODEBOOKS_DIR = "generated_codebooks";
 const ML_BASE_URL = process.env.ML_SERVICE_URL || "http://localhost:8000";
 // Backstop so a hung ML request can't leave a task pending forever. A dropped
 // connection (e.g. pybackend restart) already rejects fast; this bounds true hangs.
-const SAMPLING_TIMEOUT_MS = Number(process.env.SAMPLING_TIMEOUT_MS) || 20 * 60 * 1000;
 // Default total number of samples to draw when the request doesn't specify one.
 const DEFAULT_COVERAGE_SAMPLES = Number(process.env.DEFAULT_COVERAGE_SAMPLES) || 15;
 
@@ -276,6 +276,10 @@ export async function failOrphanedSampling() {
       { "evaluationBuild.phase": { $in: ["sampling", "freezing"] } },
       { $set: { "evaluationBuild.phase": "error", "evaluationBuild.error": "Sampling was interrupted by a restart. Retry to resume from saved reviews." } },
     );
+    await coll.updateMany(
+      { guideSamplingJobId: { $exists: true } },
+      { $unset: { guideSamplingJobId: "", guideSamplingStartedAt: "" } },
+    );
     if (res.modifiedCount > 0) {
       console.log(
         `[startup] Marked ${res.modifiedCount} orphaned sampling_pending task(s) as sampling_error`,
@@ -283,39 +287,6 @@ export async function failOrphanedSampling() {
     }
   } catch (error) {
     console.error("[startup] failOrphanedSampling error:", error);
-  }
-}
-
-async function triggerSamplingInBackground(
-  params: {
-    taskId: string;
-    userID: string;
-    payload: EmbedDatasetRequest;
-  },
-) {
-  const taskDetailsCollection = getCollection<Task>(TASKS_COLLECTION);
-  const filter = { _id: new ObjectId(params.taskId) as any, userID: params.userID };
-
-  try {
-    await axios.post(`${ML_BASE_URL}/embedding/sample`, params.payload, {
-      timeout: SAMPLING_TIMEOUT_MS,
-    });
-    await taskDetailsCollection.updateOne(filter, {
-      $set: {
-        status: "ready",
-        updatedAt: new Date().toISOString(),
-      } as Partial<Task>,
-    });
-    console.log(`[sampling] Completed taskId=${params.taskId}`);
-  } catch (error: any) {
-    const detail = error?.response?.data?.detail || error?.message || "Unknown sampling error";
-    console.error(`[sampling] Failed taskId=${params.taskId}: ${detail}`);
-    await taskDetailsCollection.updateOne(filter, {
-      $set: {
-        status: "sampling_error",
-        updatedAt: new Date().toISOString(),
-      } as Partial<Task>,
-    });
   }
 }
 
@@ -978,7 +949,8 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const batchSize = Number(req.body.evaluation_batch_size ?? 10);
     const targetPerLabel = Number(req.body.evaluation_target ?? 20);
     const guideSize = Number(req.body.coverage_n ?? DEFAULT_COVERAGE_SAMPLES);
-    if (!dValFile && (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100 || !Number.isInteger(targetPerLabel) || targetPerLabel < 1 || targetPerLabel > 1000 || !Number.isInteger(guideSize) || guideSize < 1 || guideSize > 1000)) {
+    if (!Number.isInteger(guideSize) || guideSize < 1 || guideSize > 1000 ||
+        (!dValFile && (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100 || !Number.isInteger(targetPerLabel) || targetPerLabel < 1 || targetPerLabel > 1000))) {
       return res.status(400).json({ success: false, message: "Use a round size of 1–100, a per-label target of 1–1000, and a guide budget of 1–1000." });
     }
     console.log("[uploadTaskBundle] Labels parsed, count:", labels.length);
@@ -1031,6 +1003,14 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
         message: `The labeled CSV has no "${labelColumn}" label column. Enter its exact header under Label column name.`,
       });
     }
+    if (dValFile) {
+      const known = new Set(labels.map((label) => label.name));
+      if (!valRows.length || valRows.some((row) => {
+        const parsed = parseEvaluationLabels(row[labelColumn]);
+        return !parsed.length || parsed.some((name) => !known.has(name)) ||
+          (taskInfo.type === "Single-class" && parsed.length !== 1);
+      })) return res.status(400).json({ success: false, message: "D_val must contain at least one valid configured label on every row." });
+    }
     if (!restColumns.includes(textColumn || "text")) {
       return res.status(400).json({
         success: false,
@@ -1071,6 +1051,9 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       userID: userID,
       labelColumn: labelColumn,
       modelName: modelName ?? "",
+      samplingVersion: 2,
+      samplingSeed: randomInt(0, 2 ** 32),
+      guideBudget: guideSize,
       status: "sampling_pending",
       ...(!dValFile ? { evaluationBuild: { phase: "collecting" as const, batchSize, targetPerLabel, guideSize, round: 0 } } : {}),
       demoBaseline: createDemoBaseline(valRows, textColumn ?? "text", labelColumn, labels.map((label) => label.name)),
@@ -1082,28 +1065,10 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const taskId = insertResult.insertedId.toString();
     console.log("[uploadTaskBundle] Task created with ID:", taskId);
 
-    const samplingPayload: EmbedDatasetRequest = {
-      file_path: uploadFilename,
-      text_col: [textColumn ?? "text"],
-      label_col: labelColumn,
-      model_name: modelName ?? "",
-      labels: taskData.labels,
-      taskId,
-      userId: userID,
-      coverage_n:
-        Number(req.body.coverage_n) > 0
-          ? Number(req.body.coverage_n)
-          : DEFAULT_COVERAGE_SAMPLES,
-      use_representative_sampling:
-        req.body.use_representative_sampling === undefined ||
-        String(req.body.use_representative_sampling).toLowerCase() === "true",
-    };
-
-    if (dValFile) void triggerSamplingInBackground({
-      taskId,
-      userID,
-      payload: samplingPayload,
-    });
+    if (dValFile) void generateGuideBatch({ ...taskData, _id: taskId }).then((count) => {
+      if (!count) throw new Error("No D_guide records remain after excluding D_val.");
+      return taskDetailsCollection.updateOne({ _id: insertResult.insertedId, userID }, { $set: { status: "ready" } });
+    }).catch((error) => taskDetailsCollection.updateOne({ _id: insertResult.insertedId, userID }, { $set: { status: "sampling_error", samplingError: String(error) } }));
 
     console.log("[uploadTaskBundle] Bundle upload completed successfully.");
     return res.status(200).json({

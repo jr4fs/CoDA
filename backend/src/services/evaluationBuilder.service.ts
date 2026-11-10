@@ -2,7 +2,32 @@ import type { Response } from "express";
 import type { AuthRequest } from "./tasks.service";
 import { validateReview } from "../utils/evaluationBuilder";
 import { tasks, rounds, timeout, taskFilter, BuilderError, ownedTask, getBuilderState, acquireJob } from "./evaluationBuilder.store";
-import { generateRound, finishEvaluation, failJob } from "./evaluationBuilder.jobs";
+import { generateRound, finishEvaluation, failJob, generateGuideBatch } from "./evaluationBuilder.jobs";
+import { getCollection } from "./database.service";
+import crypto from "crypto";
+
+async function withGuideLock<T>(id: string, userId: string, run: () => Promise<T>): Promise<T> {
+  const jobId = crypto.randomUUID();
+  const staleBefore = new Date(Date.now() - timeout - 60_000).toISOString();
+  const locked = await tasks().updateOne(
+    {
+      ...taskFilter(id, userId),
+      $or: [
+        { guideSamplingJobId: { $exists: false } },
+        { guideSamplingStartedAt: { $lt: staleBefore } },
+      ],
+    },
+    { $set: { guideSamplingJobId: jobId, guideSamplingStartedAt: new Date().toISOString() } },
+  );
+  if (!locked.modifiedCount) throw new BuilderError("Guide sampling is already running.", 409);
+  try {
+    return await run();
+  } finally {
+    await tasks().updateOne({ ...taskFilter(id, userId), guideSamplingJobId: jobId }, {
+      $unset: { guideSamplingJobId: "", guideSamplingStartedAt: "" },
+    });
+  }
+}
 
 function respondError(error: unknown, res: Response) {
   const status = error instanceof BuilderError ? error.status : 500;
@@ -179,6 +204,47 @@ export async function freezeEvaluation(req: AuthRequest, res: Response) {
         console.error("Could not persist sampling failure", error),
       );
     return res.status(202).json({ success: true });
+  } catch (error) {
+    return respondError(error, res);
+  }
+}
+
+export async function nextGuideRound(req: AuthRequest, res: Response) {
+  try {
+    if (!req.user) throw new BuilderError("Unauthorized", 401);
+    const id = String(req.params.taskId);
+    if (!/^[a-f0-9]{24}$/.test(id)) throw new BuilderError("Invalid task ID");
+    const task = await tasks().findOne(taskFilter(id, req.user.userId));
+    if (!task || task.samplingVersion !== 2) throw new BuilderError("Task not found", 404);
+    const continuing = req.body?.continue === true;
+    if (!continuing && (task.status !== "ready" || task.codebookComplete))
+      throw new BuilderError("Guide sampling is unavailable", 409);
+    if (continuing && task.status !== "ready" && task.status !== "sampling_error")
+      throw new BuilderError("Sampling is not ready", 409);
+    const count = await withGuideLock(id, req.user.userId, async () => {
+      const current = await tasks().findOne(taskFilter(id, req.user!.userId));
+      if (!current || (!continuing && current.codebookComplete))
+        throw new BuilderError("Guide sampling is unavailable", 409);
+      if (!continuing) return generateGuideBatch({ ...current, _id: id });
+      const annotations = getCollection<{ taskId: string; source: string; aiAnnotation?: { isCorrect?: boolean | null } }>(
+        process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails",
+      );
+      const guide = await annotations.find({ taskId: id, source: "guide" }).toArray();
+      const pending = guide.some((item) => item.aiAnnotation?.isCorrect == null);
+      let budget = current.guideBudget ?? current.evaluationBuild?.guideSize ?? 15;
+      let created = 0;
+      if (!pending) {
+        if (guide.length >= budget) budget += 5;
+        created = await generateGuideBatch({ ...current, _id: id, guideBudget: budget });
+        if (!created) throw new BuilderError("No unreviewed D_all records remain for D_guide.", 409);
+      }
+      await tasks().updateOne(taskFilter(id, req.user!.userId), {
+        $set: { guideBudget: budget, codebookComplete: false, status: "ready", updatedAt: new Date().toISOString() },
+        $unset: { completedAt: "", finalInferenceFile: "", finalInferenceStatus: "", evalResults: "", metricsFiles: "" },
+      });
+      return created;
+    });
+    return res.json({ success: true, count });
   } catch (error) {
     return respondError(error, res);
   }

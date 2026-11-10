@@ -82,5 +82,6 @@ export function useSamplingStatus({ taskId, taskStatus, refreshTaskData }: UseSa
     samplingErrorMsg,
     effectiveStatus,
     queuePosition,
+    resetStatus: () => { setPolledStatus(null); setSamplingErrorMsg(null); },
   };
 }

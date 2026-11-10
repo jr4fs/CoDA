@@ -44,6 +44,12 @@ export interface EvaluationSnapshot {
 }
 
 export interface Task {
+  samplingVersion?: number;
+  samplingSeed?: number;
+  guideBudget?: number;
+  guideSamplingRound?: number;
+  guideSamplingJobId?: string;
+  guideSamplingStartedAt?: string;
   evaluationBuild?: import("./evaluationBuilder").EvaluationBuild;
   _id?: string; // MongoDB ObjectId as string
   name: string;

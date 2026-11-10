@@ -29,7 +29,7 @@ describe("ModelPerformance", () => {
 
     expect(html).toContain("Your performance trend will appear");
     expect(html).toContain("Run final evaluation to see these metrics.");
-    expect(html).toContain("This runs model inference on the evaluation set only.");
+    expect(html).toContain("This runs model inference on D_val only.");
     expect(html).toContain("Per-label error counts are not available.");
     expect(html).not.toContain("Baseline was not captured");
     expect(html).not.toContain("Error Reduction");
