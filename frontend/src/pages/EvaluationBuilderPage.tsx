@@ -221,7 +221,7 @@ function EvaluationBuilder({ taskId }: { taskId: string }) {
               Codebook Creation Task: {state.task.name}
             </Text>
             <Badge variant="light" color="blue" size="sm">
-              Evaluation set
+              D_val
             </Badge>
           </Group>
           <Text className={styles.taskDescription} lineClamp={2}>

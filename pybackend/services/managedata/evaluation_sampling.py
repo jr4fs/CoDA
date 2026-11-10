@@ -1,4 +1,4 @@
-"""Read-only retrieval for evaluation rounds; Node owns all review state.
+"""Shared D_val and D_guide retrieval; Node owns all review state.
 
 Cache sentence/record embeddings beside the uploaded data so the existing shared
 volume persists them. Source bytes, columns and model identity invalidate caches.
@@ -23,8 +23,13 @@ class EvaluationSamplingRequest(BaseModel):
     file_path: str
     text_col: list[str] = Field(min_length=1)
     queries: dict[str, list[str]]
+    examples: dict[str, list[str]] = Field(default_factory=dict)
     quotas: dict[str, int]
     excluded: list[str] = Field(default_factory=list)
+    guide_ids: list[str] = Field(default_factory=list)
+    excluded_texts: list[str] = Field(default_factory=list)
+    iteration: int = -1
+    seed: int = 0
     export_guide: bool = False
 
     @field_validator("file_path")
@@ -50,13 +55,16 @@ def normalized(vectors):
     return np.ascontiguousarray(values / norms)
 
 
-def coverage_indices(vectors, n, seed=0):
+def coverage_indices(vectors, n, seed=0, anchors=None):
     """Farthest-first coverage within a relevant pool; never repeat a record."""
     if len(vectors) == 0 or n <= 0:
         return []
     vectors = normalized(vectors)
+    if anchors is not None and len(anchors):
+        max_sims = (vectors @ normalized(anchors).T).max(axis=1)
+        seed = int(np.argmin(max_sims))
     picked = [seed]
-    max_sims = vectors @ vectors[seed]
+    max_sims = np.maximum(max_sims, vectors @ vectors[seed]) if anchors is not None and len(anchors) else vectors @ vectors[seed]
     max_sims[seed] = np.inf
     while len(picked) < min(n, len(vectors)):
         next_index = int(np.argmin(max_sims))
@@ -105,7 +113,8 @@ class EvaluationSampler:
         texts = df[request.text_col].agg("\n\n".join, axis=1).tolist()
         eligible = [i for i, text in enumerate(texts) if text.strip()]
         excluded = set(request.excluded)
-        available = [i for i in eligible if f"r{i}" not in excluded]
+        held_out = {text.strip() for text in request.excluded_texts if text.strip()}
+        available = [i for i in eligible if f"r{i}" not in excluded and texts[i].strip() not in held_out]
         result = {"totalRecords": len(df), "eligibleRecords": len(eligible), "records": []}
         if not available or not sum(request.quotas.values()):
             return result
@@ -149,23 +158,39 @@ class EvaluationSampler:
         remaining = set(available)
         # Allocate scarce labels first (Node orders quotas by running count).
         # A record is reserved once; subsequent labels retrieve replacements.
-        for label, quota in request.quotas.items():
+        random = np.random.default_rng(request.seed)
+        if request.iteration == 0:
+            chosen = random.choice(available, size=min(len(available), sum(request.quotas.values())), replace=False).tolist()
+            selected.extend(chosen)
+            remaining.difference_update(chosen)
+        for label, quota in ([] if request.iteration == 0 else request.quotas.items()):
             if quota <= 0 or not remaining:
                 continue
             queries = list(dict.fromkeys(q.strip() for q in request.queries.get(label, []) if q.strip()))
-            if not queries:
-                raise ValueError(f"Missing query for {label}")
-            query_vectors = normalized(model.encode(queries, convert_to_numpy=True))
-            wanted = min(len(remaining), max(50, 10 * quota))
-            candidates = relevant_candidates(index, query_vectors, owners, remaining, wanted)
-            chosen = [candidates[i] for i in coverage_indices(record_vectors[candidates], quota)]
+            examples = list(dict.fromkeys(text.strip() for text in request.examples.get(label, []) if text.strip()))
+            example_vectors = normalized(model.encode(examples, convert_to_numpy=True)) if examples else None
+            anchors = example_vectors
+            if selected:
+                selected_vectors = record_vectors[selected]
+                anchors = np.concatenate((anchors, selected_vectors)) if anchors is not None else selected_vectors
+            if example_vectors is not None or queries:
+                query_vectors = example_vectors if example_vectors is not None else normalized(model.encode(queries, convert_to_numpy=True))
+                wanted = min(len(remaining), max(50, 10 * quota))
+                candidates = relevant_candidates(index, query_vectors, owners, remaining, wanted)
+                chosen = [candidates[i] for i in coverage_indices(record_vectors[candidates], quota, anchors=anchors)]
+            else:
+                chosen = random.choice(sorted(remaining), size=min(quota, len(remaining)), replace=False).tolist()
             selected.extend(chosen)
             remaining.difference_update(chosen)
 
         result["records"] = [{"recordId": f"r{i}", "text": texts[i], "sampleContent": {**df.iloc[i].to_dict(), "text_combined": texts[i]}, "labels": [], "spans": [], "reviewed": False} for i in selected]
         if request.export_guide:
             # Keep D_all intact. Existing review UI reads these established paths.
-            for folder, rows in [("rest_datasets", available), ("guide_datasets", selected)]:
+            guide_rows = sorted({
+                int(value[1:]) for value in request.guide_ids
+                if re.fullmatch(r"r\d+", value) and int(value[1:]) < len(df)
+            } | set(selected))
+            for folder, rows in [("rest_datasets", sorted(remaining)), ("guide_datasets", guide_rows)]:
                 destination = self.root / folder / request.file_path
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 output = df.iloc[rows].copy()

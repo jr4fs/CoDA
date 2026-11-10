@@ -87,7 +87,7 @@ export default function CodebookLandingPage() {
                   <Text className={styles.walkthroughTitle}>1. Define annotation task</Text>
                 </Group>
                 <Text className={styles.walkthroughText}>
-                  Upload your unlabeled notes, task details, and label definitions. Then build your evaluation set by labeling sampled narratives and highlighting evidence.
+                  Upload your unlabeled notes, task details, and label definitions. Then build D_val by labeling sampled narratives and highlighting evidence.
                 </Text>
                 <div className={styles.mockPanel}>
                   <div className={styles.mockRow}>

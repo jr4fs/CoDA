@@ -54,13 +54,16 @@ interface ErrorStatusProps {
   isLight: boolean;
   message: string;
   onGoHome: () => void;
+  onRetry?: () => void;
+  retrying?: boolean;
 }
 
-export function ErrorStatus({ isLight, message, onGoHome }: ErrorStatusProps) {
+export function ErrorStatus({ isLight, message, onGoHome, onRetry, retrying }: ErrorStatusProps) {
   return (
     <Center h="100vh" bg="var(--app-bg)">
       <Stack align="center" gap="md">
         <Text c={isLight ? "#0f1418" : "white"}>{message}</Text>
+        {onRetry && <Button onClick={onRetry} loading={retrying}>Retry sampling</Button>}
         <Button onClick={onGoHome}>Go Home</Button>
       </Stack>
     </Center>

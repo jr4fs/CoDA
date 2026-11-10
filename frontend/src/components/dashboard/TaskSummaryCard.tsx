@@ -8,6 +8,9 @@ interface TaskSummaryCardProps {
   onRunEvaluation: () => void;
   onOpenFullInference: () => void;
   onCreateTask: () => void;
+  onContinueGuide: () => void;
+  guidePending: boolean;
+  guideLoading: boolean;
 }
 
 export default function TaskSummaryCard({
@@ -17,6 +20,9 @@ export default function TaskSummaryCard({
   onRunEvaluation,
   onOpenFullInference,
   onCreateTask,
+  onContinueGuide,
+  guidePending,
+  guideLoading,
 }: TaskSummaryCardProps) {
   const totalCodebookRules = task.codebook?.length ?? 0;
 
@@ -74,13 +80,23 @@ export default function TaskSummaryCard({
 
         {/* Actions */}
         <div className="flex flex-1 flex-wrap items-center justify-center gap-4">
+          {task.samplingVersion === 2 && task.status === "ready" && (
+            <button
+              type="button"
+              onClick={onContinueGuide}
+              disabled={guideLoading}
+              className="whitespace-nowrap rounded-md border border-[#319b58] bg-white px-4 py-2.5 text-xs font-medium text-[#319b58] transition-colors hover:bg-emerald-50 disabled:opacity-60"
+            >
+              {guideLoading ? "Preparing D_guide…" : guidePending ? "Continue D_guide" : "Add 5 D_guide samples"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onRunEvaluation}
             disabled={isRunning}
             className="whitespace-nowrap rounded-md border-0 bg-[#319b58] px-4 py-2.5 text-xs font-medium leading-4 text-white transition-colors hover:bg-[#287f49] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRunning ? "Evaluating D_eval…" : "Evaluate D_eval"}
+            {isRunning ? "Evaluating D_val…" : "Evaluate D_val"}
           </button>
 
           <button

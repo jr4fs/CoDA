@@ -26,7 +26,7 @@ import { uploadCSV, uploadBundle } from "../utils/fileUpload";
 import { authenticateToken } from "../middleware/auth.middleware";
 
 const router = Router();
-import { getEvaluationBuilder, nextEvaluationRound, saveEvaluationReview, completeEvaluationRound, freezeEvaluation } from "../services/evaluationBuilder.service";
+import { getEvaluationBuilder, nextEvaluationRound, saveEvaluationReview, completeEvaluationRound, freezeEvaluation, nextGuideRound } from "../services/evaluationBuilder.service";
 
 //Adding user authentication, making this a protected route
 router.use(authenticateToken);
@@ -35,6 +35,7 @@ router.post("/:taskId/evaluation/next", nextEvaluationRound);
 router.put("/:taskId/evaluation/review", saveEvaluationReview);
 router.post("/:taskId/evaluation/complete-round", completeEvaluationRound);
 router.post("/:taskId/evaluation/freeze", freezeEvaluation);
+router.post("/:taskId/guide/next", nextGuideRound);
 
 // Upload CSV file (returns filename to use in task creation)
 // Expects form-data with field name "file"

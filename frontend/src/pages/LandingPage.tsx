@@ -81,9 +81,9 @@ export default function LandingPage() {
               <Stack gap={8} mt={8}>
                 {[
                   {
-                    name: "Evaluation set (built in the app)",
+                    name: "D_val (built in the app)",
                     file: "No labeled upload required",
-                    desc: "Review sampled narratives, assign labels, and highlight supporting text to build an evaluation set before codebook development.",
+                    desc: "Review sampled narratives, assign labels, and highlight supporting text to build D_val before codebook development.",
                     sample: "id,translated_text,label\n1,\"Donated to a pangolin rescue today!\",positive\n2,\"Fresh pangolin scales for sale, DM me...\",negative\n3,\"Cute cartoon pangolin in the new game\",neutral"
                   },
                   {
@@ -483,7 +483,7 @@ export default function LandingPage() {
                   <Text className={styles.conceptTitle}>1. Define annotation task</Text>
                 </Group>
                 <Text className={styles.conceptText}>
-                  Unlabeled data, task details, and label definitions. Build your evaluation set through guided review and text highlighting.
+                  Unlabeled data, task details, and label definitions. Build D_val through guided review and text highlighting.
                 </Text>
               </Paper>
 

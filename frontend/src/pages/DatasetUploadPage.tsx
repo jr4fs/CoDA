@@ -229,7 +229,7 @@ export default function DatasetUploadPage() {
   const isReady = Boolean(
     dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() &&
     config.selectedModel && config.evaluationBatchSize && config.evaluationTarget &&
-    config.coverageSampleSize &&
+    config.coverageSampleSize && (!dValFile || config.labelColumn.trim()) &&
     (isDemo || liveModelOptions.some((model) => model.value === config.selectedModel))
   );
 
@@ -294,7 +294,7 @@ export default function DatasetUploadPage() {
       }
       const response = await uploadTaskBundle({
         onProgress: setUploadProgress,
-        dValFile: isDemo ? dValFile ?? undefined : undefined,
+        dValFile: dValFile ?? undefined,
         dAllFile,
         taskJsonFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
         taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
@@ -303,7 +303,7 @@ export default function DatasetUploadPage() {
         taskType: config.taskType,
         labelsJsonFile,
         textColumn: config.textColumn,
-        labelColumn: isDemo ? config.labelColumn : undefined,
+        labelColumn: dValFile ? config.labelColumn : undefined,
         modelName: config.selectedModel ?? "",
         coverageN:
           typeof config.coverageSampleSize === "number"
@@ -317,7 +317,7 @@ export default function DatasetUploadPage() {
         throw new Error(response.message || "Upload failed.");
       }
 
-      toast.success("Task created. Your evaluation set is ready to build.");
+      toast.success(dValFile ? "Task created. Preparing D_guide from D_all." : "Task created. D_val is ready to build.");
 
       window.dispatchEvent(new Event("tasks:updated"));
       navigate(`/${response.task?.evaluationBuild ? "evaluation-builder" : "codebook-creation"}/${response.taskId}`, {
@@ -361,7 +361,7 @@ export default function DatasetUploadPage() {
           <Title className={styles.title}>Upload Your Task Files</Title>
         </Group>
         <Text className={styles.subtitle}>
-          Upload your unlabeled data and define the task. You’ll build an evaluation set by reviewing sampled narratives and highlighting the evidence for each label.
+          Upload D_all and define the task. Build D_val through expert review, or upload a labeled D_val to begin D_guide directly.
         </Text>
         <Group gap="sm" align="center" mt="sm" wrap="nowrap">
           <Text size="sm" c="dimmed">
@@ -401,7 +401,7 @@ export default function DatasetUploadPage() {
           opened={isDemo ? false : introOpen}
           onClose={() => setIntroOpen(false)}
           title="Step 1: Upload your task files"
-          description="Upload your unlabeled dataset, define your labels and task, then review small batches to build an evaluation set before codebook development."
+          description="Upload D_all, define your labels and task, then review small batches to build D_val before codebook development."
           storageKey="hideStep1Intro"
           onStart={() => setTourOpen(true)}
         />
@@ -443,8 +443,8 @@ export default function DatasetUploadPage() {
                         input: styles.configInput,
                       }}
                     />
-                    <NumberInput label="Examples per label" description="Target expert-confirmed examples in your evaluation set." min={1} max={1000} allowDecimal={false} value={config.evaluationTarget} onChange={value => setConfigField("evaluationTarget", typeof value === "number" ? value : "")} />
-                    <NumberInput label="Records per round" description="Review this many narratives before the next sampling round." min={1} max={100} allowDecimal={false} value={config.evaluationBatchSize} onChange={value => setConfigField("evaluationBatchSize", typeof value === "number" ? value : "")} />
+                    {!dValFile && <NumberInput label="Examples per label" description="Target expert-confirmed examples in D_val." min={1} max={1000} allowDecimal={false} value={config.evaluationTarget} onChange={value => setConfigField("evaluationTarget", typeof value === "number" ? value : "")} />}
+                    {!dValFile && <NumberInput label="Records per round" description="Review this many narratives before the next D_val round." min={1} max={100} allowDecimal={false} value={config.evaluationBatchSize} onChange={value => setConfigField("evaluationBatchSize", typeof value === "number" ? value : "")} />}
                     {taskDetailsMode === "manual" && <Select label="Labels per record" data={[{ value: "Multiclass", label: "One or more labels" }, { value: "Single-class", label: "Exactly one label" }]} value={config.taskType} onChange={value => setConfigField("taskType", value === "Single-class" ? "Single-class" : "Multiclass")} />}
                     <Select
                       label="Model"
@@ -482,10 +482,10 @@ export default function DatasetUploadPage() {
                 <Paper className={styles.dropCard} radius="lg" h="100%">
                   <Stack gap="lg">
                     <Title order={4} className={styles.tableTitle}>
-                      Required files
+                      Task files
                     </Title>
                     <Text size="sm" className={styles.tableMeta}>
-                      Upload your unlabeled CSV and label definitions, then upload or enter task details.
+                      Provide D_all, labels, and task details. An existing labeled D_val is optional.
                     </Text>
                     <Divider my={4} color={dividerColor}/>
                     <GuidedTourStep
@@ -585,6 +585,24 @@ export default function DatasetUploadPage() {
                         onFileChange={setDAllFile}
                       />
                     </GuidedTourStep>
+                    <Divider my={4} color={dividerColor}/>
+                    <RequiredFileCard
+                      inputId="validation-dataset"
+                      accept=".csv,text/csv"
+                      icon={<IconFileTypeCsv size={18}/>}
+                      label="Labeled D_val (optional)"
+                      selectLabel="Select CSV"
+                      hint="Upload an existing held-out set to skip D_val sampling. Matching narratives will be excluded from D_guide."
+                      file={dValFile}
+                      onFileChange={setDValFile}
+                    />
+                    {dValFile && <TextInput
+                      label="D_val label column"
+                      description="Exact CSV header containing the expert labels."
+                      value={config.labelColumn}
+                      onChange={(event) => setConfigField("labelColumn", event.currentTarget.value)}
+                      classNames={{ label: styles.configLabel, description: styles.configDescription, input: styles.configInput }}
+                    />}
                   </Stack>
                 </Paper>
               </Grid.Col>
@@ -616,7 +634,7 @@ export default function DatasetUploadPage() {
                     disabled={!isReady}
                     onClick={handleUpload}
                   >
-                    Upload and build evaluation set
+                    {dValFile ? "Upload and prepare D_guide" : "Upload and build D_val"}
                   </Button>
                 </GuidedTourStep>
                 {isUploading && (
