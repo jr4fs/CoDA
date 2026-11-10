@@ -89,7 +89,7 @@ export function MetricsModal({
 
         <Stack gap={6}>
           <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-            Final metrics on D_eval (held-out evaluation)
+            Final metrics on D_val (held-out evaluation)
           </Text>
           {valMetrics && !isRunningValEval ? (
             <Group grow gap="sm" align="stretch">
@@ -121,8 +121,8 @@ export function MetricsModal({
                 <Loader size="xs" />
                 <Text size="sm">
                   {valEvalProgress.total > 0
-                    ? `Evaluating D_eval… ${valEvalProgress.completed} / ${valEvalProgress.total}`
-                    : "Evaluating D_eval…"}
+                    ? `Evaluating D_val… ${valEvalProgress.completed} / ${valEvalProgress.total}`
+                    : "Evaluating D_val…"}
                 </Text>
               </Group>
               <Button variant="subtle" color="red" size="sm" onClick={async () => {
@@ -131,10 +131,10 @@ export function MetricsModal({
                   await cancelValEval(taskId);
                   navigate(`/dashboard/${taskId}`);
                 } catch {
-                  toast.error("Could not cancel D_eval evaluation. Please try again.");
+                  toast.error("Could not cancel D_val evaluation. Please try again.");
                 }
               }}>
-                Cancel D_eval
+                Cancel D_val
               </Button>
             </Group>
           ) : (

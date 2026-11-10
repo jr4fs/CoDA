@@ -83,7 +83,7 @@ export function useAnnotationReviewFlow({
   const nextDisabled =
     isLoading ||
     currentResult?.isCorrect == null ||
-    (currentResult?.isCorrect === false && !currentResult?.correctLabel) ||
+    (currentResult?.isCorrect === false && (task?.samplingVersion === 2 && task.type !== "Single-class" ? !currentResult.correctLabels?.length : !currentResult?.correctLabel)) ||
     (needsFeedback && !currentResult?.feedback?.trim()) ||
     spanTextFeedback === undefined ||
     reasoningFeedback === undefined;
@@ -308,7 +308,8 @@ export function useAnnotationReviewFlow({
           guidelinesRevised: revised,
         };
 
-        const resolvedLabels =
+        const resolvedLabels = task.samplingVersion === 2 && enrichedAIResult.correctLabels?.length
+          ? enrichedAIResult.correctLabels :
           enrichedAIResult.isCorrect === false && enrichedAIResult.correctLabel
             ? [enrichedAIResult.correctLabel]
             : enrichedAIResult.label;
@@ -352,6 +353,7 @@ export function useAnnotationReviewFlow({
     } catch (error) {
       console.error("Failed to update guide annotation:", error);
       toast.error("Failed to save annotation feedback.");
+      return false;
     }
 
     if (currentIndex < totalSamples - 1) {
@@ -360,6 +362,7 @@ export function useAnnotationReviewFlow({
       // Keep focus on last sample after completion to avoid an empty n+1/n state.
       setCurrentIndex(Math.max(totalSamples - 1, 0));
     }
+    return true;
   };
 
   const setCurrentCorrect = (value: boolean) => {
@@ -372,6 +375,11 @@ export function useAnnotationReviewFlow({
           value === true
             ? prev[currentIndex]?.label?.[0] ?? generatedLabels?.[0] ?? null
             : prev[currentIndex]?.correctLabel ?? null,
+        correctLabels: value
+          ? task?.type === "Single-class"
+            ? (prev[currentIndex]?.label ?? generatedLabels).slice(0, 1)
+            : prev[currentIndex]?.label ?? generatedLabels
+          : [],
       },
     }));
   };
@@ -382,9 +390,15 @@ export function useAnnotationReviewFlow({
       [currentIndex]: {
         ...prev[currentIndex],
         correctLabel: label,
+        correctLabels: label ? [label] : [],
       },
     }));
   };
+
+  const setCurrentCorrectLabels = (labels: string[]) => setBatchResults((prev) => ({
+    ...prev,
+    [currentIndex]: { ...prev[currentIndex], correctLabels: labels, correctLabel: labels[0] ?? null },
+  }));
 
   const setCurrentFeedback = (feedback: string) => {
     setBatchResults((prev) => ({
@@ -407,6 +421,7 @@ export function useAnnotationReviewFlow({
     generatedSpanText,
     generatedReasoning,
     currentIndex,
+    setCurrentIndex,
     totalSamples,
     currentSample,
     currentAnnotation,
@@ -428,6 +443,7 @@ export function useAnnotationReviewFlow({
     handleNextClick,
     setCurrentCorrect,
     setCurrentCorrectLabel,
+    setCurrentCorrectLabels,
     setCurrentFeedback,
     goPrev,
   };

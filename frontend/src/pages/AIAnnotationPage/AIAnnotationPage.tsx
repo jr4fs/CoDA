@@ -73,6 +73,8 @@ export default function AnnotationPage() {
       <ErrorStatus
         isLight={isLight}
         message={controller.samplingErrorMsg || "Sampling failed for this task."}
+        onRetry={controller.task?.samplingVersion === 2 && !controller.task.evaluationBuild ? () => void controller.retrySampling() : undefined}
+        retrying={controller.retryingSampling}
         onGoHome={controller.goHome}
       />
     );
@@ -389,6 +391,8 @@ export default function AnnotationPage() {
                           reasoningFeedback={controller.reasoningFeedback}
                           labels={controller.task.labels || []}
                           onSetCorrectLabel={controller.setCurrentCorrectLabel}
+                          onSetCorrectLabels={controller.setCurrentCorrectLabels}
+                          multiLabelReview={controller.task.samplingVersion === 2 && controller.task.type !== "Single-class"}
                           onSetFeedback={controller.setCurrentFeedback}
                         />
                       </GuidedTourStep>

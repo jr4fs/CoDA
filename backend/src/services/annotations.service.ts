@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { AnnotationItem, AddAnnotationRequest, UpdateValAnnotationRequest } from "@common/types/annotations";
+import type { Task } from "@common/types/tasks";
 import { ObjectId } from "mongodb";
 import { getCollection } from "./database.service";
 import { AuthRequest } from "./tasks.service";
@@ -115,6 +116,21 @@ export async function updateGuideAnnotation(req: AuthRequest, res: Response) {
         });
 
         if (existing) {
+            const task = await getCollection<Task>(process.env.TASKS_COLLECTION_NAME || "TaskDetails")
+                .findOne({ _id: new ObjectId(payload.taskId) as any, userID: userId });
+            if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+            if (task.samplingVersion === 2) {
+                const labels = payload.labels;
+                const allowed = new Set(task.labels.map((label) => label.name));
+                if (!Array.isArray(labels) || !labels.length || new Set(labels).size !== labels.length ||
+                    labels.some((label) => typeof label !== "string" || !allowed.has(label)) ||
+                    (task.type === "Single-class" && labels.length !== 1)) {
+                    return res.status(400).json({ success: false, message: "Choose a valid final label set for this guide example" });
+                }
+                if (typeof payload.aiAnnotation?.isCorrect !== "boolean") {
+                    return res.status(400).json({ success: false, message: "Confirm the prediction before continuing" });
+                }
+            }
             const updateDoc: any = { updatedAt: new Date().toISOString() };
             if (payload.labels !== undefined) updateDoc.labels = payload.labels;
             if (payload.aiAnnotation !== undefined) updateDoc.aiAnnotation = payload.aiAnnotation;

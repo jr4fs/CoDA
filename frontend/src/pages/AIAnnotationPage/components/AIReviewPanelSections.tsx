@@ -5,6 +5,7 @@ import {
   LoadingOverlay,
   Paper,
   Select,
+  MultiSelect,
   Stack,
   Text,
   Textarea,
@@ -267,6 +268,8 @@ export function FeedbackSection({
   reasoningFeedback,
   labels,
   onSetCorrectLabel,
+  onSetCorrectLabels,
+  multiLabelReview = false,
   onSetFeedback,
 }: SectionProps & {
   batchResult?: AIAssisted;
@@ -274,6 +277,8 @@ export function FeedbackSection({
   reasoningFeedback?: boolean;
   labels: LabelOption[];
   onSetCorrectLabel: (label: string | null) => void;
+  onSetCorrectLabels?: (labels: string[]) => void;
+  multiLabelReview?: boolean;
   onSetFeedback: (value: string) => void;
 }) {
   const showFeedback = batchResult?.isCorrect === false || spanTextFeedback === false || reasoningFeedback === false;
@@ -318,7 +323,15 @@ export function FeedbackSection({
                   )}
                 </Group>
               </Group>
-              <Select
+              {multiLabelReview ? <MultiSelect
+                label="Correct labels"
+                placeholder="Select all labels that apply"
+                data={labels.map((l) => ({ value: l.name, label: l.name }))}
+                value={batchResult?.correctLabels ?? []}
+                onChange={onSetCorrectLabels}
+                required
+                disabled={readOnly}
+              /> : <Select
                 label="Correct label"
                 placeholder="Select the correct label"
                 data={labels.map((l) => ({ value: l.name, label: l.name.toUpperCase() }))}
@@ -327,7 +340,7 @@ export function FeedbackSection({
                 required
                 allowDeselect={false}
                 disabled={readOnly}
-              />
+              />}
             </>
           )}
           <Textarea
