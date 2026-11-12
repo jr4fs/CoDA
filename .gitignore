@@ -37,4 +37,5 @@ deploy/terraform/tf.plan
 
 # Deployment secrets/config (single untracked source of truth)
 deploy/config.env
+deploy/config_halas.env
 deploy/.generated.env
