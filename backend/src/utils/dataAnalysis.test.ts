@@ -49,3 +49,21 @@ test("summarizes D_all before inference and predicted multi-label prevalence aft
   assert.deepEqual(details[0].labels, ["Legal", "Health"]);
   assert.equal(details[0].text, "First");
 });
+
+test("analyzes uploaded prediction columns and record histories without inference", async () => {
+  const file = path.join(temporary, "uploaded.csv");
+  await fs.writeFile(file, 'client id,timestamp,text,prediction\nA,2026-01-01,First,"Legal, Health"\nA,2026-02-01,Second,"[""health"",""Legal""]"\nB,invalid,Third,Unknown\n,2026-03-01,Fourth,Legal\n', "utf8");
+  const names = ["Legal", "Health"];
+  const raw = await loadAnalysis(file, names, "text", false);
+  const predictions = await loadAnalysis(file, names, "text", "prediction");
+  const summary = summarizeAnalysis(raw, predictions);
+  assert.equal(summary.predictionStatus, "ready");
+  assert.equal(summary.classifiedCount, 3);
+  assert.equal(summary.unclassifiedCount, 1);
+  assert.equal(summary.multiLabelCount, 2);
+  assert.equal(summary.overview.missingIds, 1);
+  assert.equal(summary.hasTimestamp, false); // fewer than 80% of nonempty dates are valid
+  assert.deepEqual(summary.distribution.map(({ label, count }) => [label, count]), [["Legal", 3], ["Health", 2]]);
+  const records = await loadAnalysisRecords(file, predictions.columns, "A", names, "prediction");
+  assert.deepEqual(records.map((record) => record.labels), [["Legal", "Health"], ["Health", "Legal"]]);
+});

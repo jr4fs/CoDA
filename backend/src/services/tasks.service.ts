@@ -842,6 +842,56 @@ export async function uploadTaskFile(req: AuthRequest, res: Response) {
   }
 }
 
+/** Create an owner-scoped analysis task without starting an ML workflow. */
+export async function createDashboardTask(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const csv = files?.dataset?.[0];
+  const labelsFile = files?.labels_json?.[0];
+  const taskFile = files?.task_json?.[0];
+  const textColumn = String(req.body.text_column ?? "").trim();
+  const labelColumn = String(req.body.label_column ?? "").trim();
+  if (!csv || !labelsFile || !textColumn || !labelColumn)
+    return res.status(400).json({ success: false, message: "Provide a labeled CSV, labels JSON, and exact text and prediction column names." });
+  let taskInfo: ReturnType<typeof parseTaskJson>;
+  let labels: ReturnType<typeof parseLabelsJson>;
+  try {
+    taskInfo = taskFile ? parseTaskJson(taskFile.buffer) : {
+      name: String(req.body.task_name ?? "").trim(),
+      description: String(req.body.task_description ?? "").trim(),
+      type: req.body.task_type === "Single-class" ? "Single-class" : "Multiclass",
+    };
+    if (!taskInfo.name || !taskInfo.description) throw new Error("Task name and description are required.");
+    labels = parseLabelsJson(labelsFile.buffer);
+    const columns = getCsvColumns(csv.buffer);
+    if (!columns.includes(textColumn)) throw new Error(`The CSV has no "${textColumn}" text column.`);
+    if (!columns.includes(labelColumn)) throw new Error(`The CSV has no "${labelColumn}" prediction column.`);
+    if (!countCsvDataRows(csv.buffer)) throw new Error("The CSV must contain at least one record.");
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error instanceof Error ? error.message : "Invalid uploaded files." });
+  }
+  const filename = generateUploadFilename(csv.originalname);
+  const filePath = getUploadsPath(filename);
+  try {
+    ensureUploadsDir();
+    await fs.writeFile(filePath, csv.buffer);
+    const task: Omit<Task, "_id"> = {
+      ...taskInfo, labels, labelColumn, modelName: "", userID, columns: [textColumn],
+      file: filename, restFile: filename, inputFileName: csv.originalname,
+      labelsJsonRaw: labelsFile.buffer.toString("utf-8"),
+      taskJsonRaw: taskFile?.buffer.toString("utf-8") ?? JSON.stringify(taskInfo),
+      dashboardOnly: true, status: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const result = await getCollection<Task>(TASKS_COLLECTION).insertOne(task);
+    return res.status(201).json({ success: true, taskId: result.insertedId.toString(), task: { ...task, _id: result.insertedId.toString() } });
+  } catch (error) {
+    await fs.unlink(filePath).catch(() => {});
+    console.error("Error creating dashboard:", error);
+    return res.status(500).json({ success: false, message: "Could not create dashboard." });
+  }
+}
+
 /*
  * Uploads D_val, D_all, task JSON, and labels JSON
  * D_all in rest_datasets, D_val in val_datasets

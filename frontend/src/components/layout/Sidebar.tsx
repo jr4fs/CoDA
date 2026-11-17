@@ -15,6 +15,7 @@ import {
   IconLayoutSidebar,
   IconUserCircle,
   IconBook2,
+  IconChartBar,
   // IconPencil, // Annotate Dataset feature hidden for now
   IconDots,
   IconTrash,
@@ -202,7 +203,7 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
 
       const currentPath = window.location.pathname;
       const isOnDeletedTaskPath =
-        currentPath.endsWith(`/codebook-creation/${task._id}`) || currentPath.endsWith(`/evaluation-builder/${task._id}`);
+        currentPath.endsWith(`/codebook-creation/${task._id}`) || currentPath.endsWith(`/evaluation-builder/${task._id}`) || currentPath.endsWith(`/dashboard/${task._id}`);
       if (isOnDeletedTaskPath) {
         navigate("/home");
       }
@@ -320,6 +321,7 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
   );
 
   const isCreateCodebookActive = pathname === "/new-codebook";
+  const isCreateDashboardActive = pathname === "/new-dashboard";
   // Annotate Dataset feature hidden for now
   // const isAnnotateDatasetActive = pathname === "/new-annotation";
 
@@ -453,6 +455,11 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
             <IconBook2 size={24} stroke={1.6} />
           </ActionIcon>
         </Tooltip>
+        <Tooltip label="Create Dashboard" position="top" withArrow>
+          <ActionIcon onClick={() => navigate("/new-dashboard")} w="100%" size="xl" radius="md" c="var(--app-sidebar-text)" variant="subtle" aria-label="Create Dashboard" classNames={{ root: `sidebar-button-collapsed ${isCreateDashboardActive ? "sidebar-button-collapsed-active" : ""}` }}>
+            <IconChartBar size={24} stroke={1.6} />
+          </ActionIcon>
+        </Tooltip>
         {/* Annotate Dataset feature hidden for now
         <Tooltip label="Annotate Dataset" position="top" withArrow>
           <ActionIcon
@@ -580,6 +587,10 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
             Create Task
           </Button>
 
+          <Button onClick={() => navigate("/new-dashboard")} fullWidth radius="md" c="var(--app-sidebar-text)" px="sm" h={36} justify="flex-start" leftSection={<IconChartBar size={16} stroke={1.8} />} fz="sm" classNames={{ root: `sidebar-button sidebar-create-row ${isCreateDashboardActive ? "sidebar-button-active" : ""}` }}>
+            Create Dashboard
+          </Button>
+
           {/* Annotate Dataset feature hidden for now
           <Button
             onClick={() => {
@@ -624,11 +635,11 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
             <>
               {renderTaskSection({
                 keyName: "codebook",
-                title: "Codebook Development",
+                title: codebookTasks.some((task) => task.dashboardOnly) ? "Tasks & Dashboards" : "Codebook Development",
                 tasksList: codebookTasks,
                 listRef: codebookListRef,
                 listHeight: listHeights.codebook,
-                routeBuilder: (task) => `/${task.evaluationBuild && task.evaluationBuild.phase !== "frozen" ? "evaluation-builder" : "codebook-creation"}/${task._id}`,
+                routeBuilder: (task) => task.dashboardOnly ? `/dashboard/${task._id}` : `/${task.evaluationBuild && task.evaluationBuild.phase !== "frozen" ? "evaluation-builder" : "codebook-creation"}/${task._id}`,
               })}
 
               {/* Auto Annotation task section hidden for now

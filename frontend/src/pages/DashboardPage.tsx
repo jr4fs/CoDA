@@ -68,8 +68,10 @@ export default function DashboardPage() {
     setLoading(true);
     setEvaluationReviewed(null);
 
-    Promise.all([getTaskById(taskId), getTaskAnnotations(taskId)])
-      .then(([taskData, annotationData]) => {
+    getTaskById(taskId)
+      .then(async (taskData) => {
+        const loaded: Task = taskData.task ?? taskData;
+        const annotationData = loaded.dashboardOnly ? { annotations: [] } : await getTaskAnnotations(taskId);
         if (cancelled) return;
 
         const loadedTask: Task = taskData.task ?? taskData;
@@ -100,7 +102,7 @@ export default function DashboardPage() {
   }, [taskId]);
 
   useEffect(() => {
-    if (!taskId) return;
+    if (!taskId || !task || task.dashboardOnly) return;
 
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -138,7 +140,7 @@ export default function DashboardPage() {
       cancelled = true;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [taskId]);
+  }, [taskId, task]);
 
   const handleTabChange = (value: string) => {
     if (!isDashboardTabId(value)) return;
@@ -277,6 +279,15 @@ export default function DashboardPage() {
       </main>
     );
   }
+
+  if (task.dashboardOnly) return (
+    <main className="dashboard-shell px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[1138px] flex-col gap-6">
+        <header><h1 className="text-xl font-semibold">{task.name}</h1><p className="mt-1 text-sm text-muted-foreground">{task.description}</p></header>
+        <DataAnalysis task={task} />
+      </div>
+    </main>
+  );
 
   const progressPercent =
     progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;

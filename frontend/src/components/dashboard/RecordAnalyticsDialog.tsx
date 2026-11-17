@@ -1,11 +1,13 @@
-import { ArrowUpDown, Download, X } from "lucide-react";
+import { ArrowUpDown, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, ReferenceLine, Scatter, ScatterChart, XAxis, YAxis, ZAxis } from "recharts";
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import type { NormalizedRecord } from "@/types/dashboard";
 import type { IdSummary } from "@/utils/dashboard/dashboardMetrics";
+import { exportRecordReport } from "@/utils/dashboard/pdfReport";
 import { downloadContent } from "@/utils/downloadContent";
+import { toast } from "@/lib/toast";
 
 export interface AnalysisLabel {
   key: string;
@@ -16,6 +18,8 @@ interface Props {
   open: boolean;
   summary: IdSummary | null;
   records: NormalizedRecord[];
+  recordsReady?: boolean;
+  recordsError?: boolean;
   labels: AnalysisLabel[];
   previousId?: string;
   nextId?: string;
@@ -32,11 +36,12 @@ interface ActivityPoint {
   count: number;
 }
 
-export default function RecordAnalyticsDialog({ open, summary, records, labels, previousId, nextId, onSelectId, onOpenChange }: Props) {
+export default function RecordAnalyticsDialog({ open, summary, records, recordsReady = true, recordsError = false, labels, previousId, nextId, onSelectId, onOpenChange }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -130,12 +135,13 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
       }}
     >
       <div className="grid gap-3 p-4 sm:p-6">
+        {!recordsReady && <p role="status">{recordsError ? "Record details could not be loaded. Close and reopen to retry." : "Loading record details…"}</p>}
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-medium text-muted-foreground">User ID</p>
+            <p className="text-xs font-medium text-muted-foreground">ID</p>
             <h2 id="record-analytics-title" className="mt-0.5 text-xl font-semibold leading-6 tabular-nums">{summary.id}</h2>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              {summary.activityCount.toLocaleString()} notes{first && latest ? ` · ${monthYear(first)} – ${monthYear(latest)}` : " · Dates unavailable"}
+              {summary.activityCount.toLocaleString()} records{first && latest ? ` · ${monthYear(first)} – ${monthYear(latest)}` : " · Dates unavailable"}
             </p>
           </div>
           <div className="flex items-center justify-end gap-2">
@@ -175,19 +181,19 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
           <section className={insetClass}>
             <h3 className={titleClass}>Key Details</h3>
             <dl className="mt-auto grid gap-2 text-xs">
-              <Detail label="Total Notes" value={summary.activityCount.toLocaleString()} />
-              <Detail label="First Note" value={formatDate(first)} />
-              <Detail label="Latest Note" value={formatDate(latest)} />
+              <Detail label="Total Records" value={summary.activityCount.toLocaleString()} />
+              <Detail label="First Record" value={formatDate(first)} />
+              <Detail label="Latest Record" value={formatDate(latest)} />
               <Detail label="Active Span" value={activeSpan(first, latest)} />
             </dl>
           </section>
         </div>
 
-        <section className={insetClass}>
+        <section className={insetClass} data-activity-chart>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className={titleClass}>Activity Over Time</h3>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">Click a point to learn more about a note.</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">Click a point to learn more about a record.</p>
             </div>
             <Legend labels={labels} />
           </div>
@@ -213,7 +219,7 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
                       labelFormatter={(_, payload) => {
                         const point = payload?.[0]?.payload;
                         if (!point) return "Activity";
-                        const noteCount = point.count > 1 ? ` · ${point.count} notes` : "";
+                        const noteCount = point.count > 1 ? ` · ${point.count} records` : "";
                         return `${point.label} · ${formatDate(new Date(point.date))}${noteCount}`;
                       }}
                       formatter={() => null}
@@ -223,6 +229,7 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
                 {labels.map((label) => (
                   <Scatter
                     key={label.key}
+                    isAnimationActive={false}
                     data={plottedData.filter((point) => point.labelKey === label.key)}
                     fill={label.color}
                     shape={markerShape(label.key)}
@@ -276,13 +283,13 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
                         {recordLabels.length ? recordLabels.map((item) => item.label).join(", ") : "Prediction unavailable"}
                       </p>
                       <p className={`mt-1 pl-3.5 text-[13px] leading-5 text-[#666] ${isExpanded ? "" : "line-clamp-3"}`}>
-                        {record.text || "No note text is available."}
+                        {record.text || "No record text is available."}
                       </p>
                       {record.text.length > 150 && (
                         <button type="button"
                           className="mt-1 min-h-6 pl-3.5 text-[10px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:underline"
                           onClick={() => setExpanded(isExpanded ? null : index)}>
-                          {isExpanded ? "Show less ↑" : "View full note ↓"}
+                          {isExpanded ? "Show less ↑" : "View full record ↓"}
                         </button>
                       )}
                     </div>
@@ -291,16 +298,18 @@ export default function RecordAnalyticsDialog({ open, summary, records, labels, 
               })}
             </ol>
           ) : (
-            <p className="py-8 text-center text-xs text-muted-foreground">No notes match this label filter.</p>
+            <p className="py-8 text-center text-xs text-muted-foreground">No records match this label filter.</p>
           )}
         </section>
-        <footer className="flex justify-end">
-          <button type="button"
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={exportRows}>
-            Export <Download className="size-3.5" />
-          </button>
-        </footer>
+      </div>
+      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-border bg-card px-4 py-2 sm:px-6">
+        <button type="button" disabled={!recordsReady || exporting} className={buttonClass} onClick={() => {
+          setExporting(true);
+          void exportRecordReport(summary, records, labels, ref.current?.querySelector<HTMLElement>("[data-activity-chart]") ?? null, filter)
+            .catch(() => toast.error("Could not generate the PDF report. Please try again."))
+            .finally(() => setExporting(false));
+        }}>{exporting ? "Preparing PDF…" : "Download PDF report"}</button>
+        <button type="button" disabled={!recordsReady} className={buttonClass} onClick={exportRows}>Export CSV</button>
       </div>
     </dialog>
   );

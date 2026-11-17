@@ -44,6 +44,7 @@ export interface EvaluationSnapshot {
 }
 
 export interface Task {
+  dashboardOnly?: boolean;
   samplingVersion?: number;
   samplingSeed?: number;
   guideBudget?: number;

@@ -50,7 +50,7 @@ export async function getDataAnalysisSummary(req: AuthRequest, res: Response) {
     const names = task.labels.map((label) => label.name);
     const textColumn = task.columns?.[0] ?? "text";
     const raw = await loadAnalysis(files.rawFile, names, textColumn, false);
-    const predicted = files.predictionFile ? await loadAnalysis(files.predictionFile, names, textColumn, true) : null;
+    const predicted = task.dashboardOnly ? await loadAnalysis(files.rawFile, names, textColumn, task.labelColumn) : files.predictionFile ? await loadAnalysis(files.predictionFile, names, textColumn, true) : null;
     const usable = predicted?.totalEntries === raw.totalEntries ? predicted : null;
     const search = String(req.query.search ?? "");
     const sort = String(req.query.sort ?? "latest");
@@ -77,10 +77,10 @@ export async function getDataAnalysisIdRecords(req: AuthRequest, res: Response) 
     const names = task.labels.map((label) => label.name);
     const textColumn = task.columns?.[0] ?? "text";
     const raw = await loadAnalysis(files.rawFile, names, textColumn, false);
-    const predicted = files.predictionFile ? await loadAnalysis(files.predictionFile, names, textColumn, true) : null;
+    const predicted = task.dashboardOnly ? await loadAnalysis(files.rawFile, names, textColumn, task.labelColumn) : files.predictionFile ? await loadAnalysis(files.predictionFile, names, textColumn, true) : null;
     const usable = predicted?.totalEntries === raw.totalEntries ? predicted : null;
-    const source = usable ? files.predictionFile! : files.rawFile;
-    const records = await loadAnalysisRecords(source, (usable ?? raw).columns, req.params.id, names, Boolean(usable));
+    const source = usable && !task.dashboardOnly ? files.predictionFile! : files.rawFile;
+    const records = await loadAnalysisRecords(source, (usable ?? raw).columns, req.params.id, names, task.dashboardOnly ? task.labelColumn : Boolean(usable));
     return res.status(200).json({ success: true, records });
   } catch (error) {
     console.error("Error loading D_all ID records:", error);

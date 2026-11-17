@@ -27,7 +27,7 @@ import PageIntro, {usePageIntroTour} from "../components/common/PageIntro";
 import {LABELS_TEMPLATE, TASK_TEMPLATE} from "../constants/datasetUpload.constants";
 import { useModelOptions } from "../hooks/useModelOptions";
 import {toast} from "../lib/toast";
-import {uploadTaskBundle} from "../services/tasks.service";
+import {createDashboardTask, uploadTaskBundle} from "../services/tasks.service";
 import {downloadContent} from "../utils/downloadContent";
 import { useDemo } from "../demo/DemoContext";
 import styles from "./DatasetUploadPage.module.css";
@@ -157,12 +157,12 @@ function RequiredFileCard({
   );
 }
 
-export default function DatasetUploadPage() {
+export default function DatasetUploadPage({ dashboardOnly = false }: { dashboardOnly?: boolean }) {
   const navigate = useNavigate();
   const {colorScheme} = useMantineColorScheme();
   const isLight = colorScheme === "light";
   const { isDemo, tourOpen: demoTourOpen, setTourOpen: setDemoTourOpen } = useDemo();
-  const { options: liveModelOptions, error: modelOptionsError } = useModelOptions(isDemo);
+  const { options: liveModelOptions, error: modelOptionsError } = useModelOptions(isDemo || dashboardOnly);
   const availableModelOptions = isDemo
     ? [{ value: "qwen2.5:32b", label: "Qwen2.5-32B (simulated demo)" }]
     : liveModelOptions;
@@ -234,6 +234,7 @@ export default function DatasetUploadPage() {
     manualTaskName.trim().length > 0 && manualTaskDescription.trim().length > 0;
   const hasTaskDetails = taskDetailsMode === "file" ? Boolean(taskJsonFile) : hasManualTaskDetails;
   const isReady = Boolean(
+    dashboardOnly ? dValFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() && config.labelColumn.trim() :
     dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() &&
     config.selectedModel && config.evaluationBatchSize && config.evaluationTarget &&
     config.coverageSampleSize && (!dValFile || config.labelColumn.trim()) &&
@@ -265,15 +266,14 @@ export default function DatasetUploadPage() {
 
   const handleUpload = useCallback(async () => {
     if (
-      !dAllFile ||
+      (dashboardOnly ? !dValFile || !config.labelColumn.trim() : !dAllFile) ||
       !hasTaskDetails ||
       !labelsJsonFile ||
       !config.textColumn.trim() ||
-      !config.selectedModel ||
-      (!isDemo && !liveModelOptions.some((model) => model.value === config.selectedModel))
+      (!dashboardOnly && (!config.selectedModel || (!isDemo && !liveModelOptions.some((model) => model.value === config.selectedModel))))
     ) {
       setError(
-          "Provide the unlabeled CSV, labels JSON, task details, text column, and preferred model before continuing.",
+          dashboardOnly ? "Provide the labeled CSV, labels JSON, task details, text column, and prediction column." : "Provide the unlabeled CSV, labels JSON, task details, text column, and preferred model before continuing.",
       );
       return;
     }
@@ -299,10 +299,17 @@ export default function DatasetUploadPage() {
           throw new Error(`"${labelsJsonFile.name}" is not a label set. Select a labels.json file with a non-empty "labels" array, or download the label template.`);
         }
       }
-      const response = await uploadTaskBundle({
+      const response = dashboardOnly ? await createDashboardTask({
+        dataset: dValFile!, labels: labelsJsonFile,
+        taskFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
+        taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
+        taskDescription: taskDetailsMode === "manual" ? manualTaskDescription.trim() : undefined,
+        taskType: config.taskType, textColumn: config.textColumn.trim(), labelColumn: config.labelColumn.trim(),
+        onProgress: setUploadProgress,
+      }) : await uploadTaskBundle({
         onProgress: setUploadProgress,
         dValFile: dValFile ?? undefined,
-        dAllFile,
+        dAllFile: dAllFile!,
         taskJsonFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
         taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
         taskDescription:
@@ -324,13 +331,13 @@ export default function DatasetUploadPage() {
         throw new Error(response.message || "Upload failed.");
       }
 
-      toast.success(dValFile ? "Task created. Preparing D_guide from D_all." : "Task created. D_val is ready to build.");
+      toast.success(dashboardOnly ? "Dashboard created." : dValFile ? "Task created. Preparing D_guide from D_all." : "Task created. D_val is ready to build.");
 
       window.dispatchEvent(new Event("tasks:updated"));
-      navigate(`/${response.task?.evaluationBuild ? "evaluation-builder" : "codebook-creation"}/${response.taskId}`, {
+      navigate(`/${dashboardOnly ? "dashboard" : response.task?.evaluationBuild ? "evaluation-builder" : "codebook-creation"}/${response.taskId}`, {
         state: {
           task: response.task,
-          fileName: response.fileName,
+          fileName: "fileName" in response ? response.fileName : undefined,
         },
       });
     } catch (err: unknown) {
@@ -346,6 +353,7 @@ export default function DatasetUploadPage() {
     }
   }, [
     config,
+    dashboardOnly,
     dAllFile,
     dValFile,
     hasTaskDetails,
@@ -363,14 +371,14 @@ export default function DatasetUploadPage() {
     <Box className={styles.page} style={{minHeight: "100dvh", overflowX: "hidden", overflowY: "auto"}}>
       <div className={styles.orbOne}/>
       <Container fluid className={styles.hero}>
-        <StepTrackerBanner currentStep={1} evaluationFlow={!isDemo} onHelp={handleHelp}/>
+        {!dashboardOnly && <StepTrackerBanner currentStep={1} evaluationFlow={!isDemo} onHelp={handleHelp}/>}
         <Group justify="space-between" align="center" wrap="nowrap">
-          <Title className={styles.title}>Upload Your Task Files</Title>
+          <Title className={styles.title}>{dashboardOnly ? "Create a Dashboard" : "Upload Your Task Files"}</Title>
         </Group>
         <Text className={styles.subtitle}>
-          Upload D_all and define the task. Build D_val through expert review, or upload a labeled D_val to begin D_guide directly.
+          {dashboardOnly ? "Upload labeled predictions and define the task to explore your data." : "Upload D_all and define the task. Build D_val through expert review, or upload a labeled D_val to begin D_guide directly."}
         </Text>
-        <Group gap="sm" align="center" mt="sm" wrap="nowrap">
+        {!dashboardOnly && <Group gap="sm" align="center" mt="sm" wrap="nowrap">
           <Text size="sm" c="dimmed">
             New here? Try the tool with a ready-made sample dataset:
           </Text>
@@ -398,14 +406,14 @@ export default function DatasetUploadPage() {
           >
             Download sample dataset
           </Button>
-        </Group>
+        </Group>}
       </Container>
 
       <Container fluid className={styles.tableSection} style={{height: "auto", overflow: "visible"}}>
 
         <PageIntro
           mode={introMode}
-          opened={isDemo ? false : introOpen}
+          opened={isDemo || dashboardOnly ? false : introOpen}
           onClose={() => setIntroOpen(false)}
           title="Step 1: Upload your task files"
           description="Upload D_all, define your labels and task, then review small batches to build D_val before codebook development."
@@ -428,10 +436,10 @@ export default function DatasetUploadPage() {
                         Task config
                       </Title>
                     <Text size="sm" className={styles.tableMeta}>
-                      Configure model and dataset columns before upload.
+                      {dashboardOnly ? "Choose the dataset columns to analyze." : "Configure model and dataset columns before upload."}
                     </Text>
                     <Divider my={4} color={dividerColor}/>
-                    <NumberInput
+                    {!dashboardOnly && <><NumberInput
                       label="Codebook review budget"
                       description="Maximum guide examples to review. Label-targeted FAISS retrieval and coverage sampling are automatic."
                       value={config.coverageSampleSize}
@@ -469,9 +477,10 @@ export default function DatasetUploadPage() {
                         dropdown: styles.configDropdown,
                       }}
                     />
+                    </>}
                     <TextInput
                       label="Text column name"
-                      description="The column in your CSV that contains the text to annotate."
+                      description={dashboardOnly ? "The column containing record text." : "The column in your CSV that contains the text to annotate."}
                       placeholder="e.g. text, translated_text, content…"
                       value={config.textColumn}
                       onChange={(event) => setConfigField("textColumn", event.currentTarget.value)}
@@ -481,6 +490,13 @@ export default function DatasetUploadPage() {
                         input: styles.configInput,
                       }}
                     />
+                    {dashboardOnly && <TextInput
+                      label="Prediction label column"
+                      description="Exact CSV header containing predicted label names (comma-separated or JSON array for multiple labels)."
+                      value={config.labelColumn}
+                      onChange={(event) => setConfigField("labelColumn", event.currentTarget.value)}
+                      classNames={{ label: styles.configLabel, description: styles.configDescription, input: styles.configInput }}
+                    />}
                   </Stack>
                 </Paper>
                 </GuidedTourStep>
@@ -492,7 +508,7 @@ export default function DatasetUploadPage() {
                       Task files
                     </Title>
                     <Text size="sm" className={styles.tableMeta}>
-                      Provide D_all, labels, and task details. An existing labeled D_val is optional.
+                      {dashboardOnly ? "Provide the labeled dataset, labels, and task details." : "Provide D_all, labels, and task details. An existing labeled D_val is optional."}
                     </Text>
                     <Divider my={4} color={dividerColor}/>
                     <GuidedTourStep
@@ -576,7 +592,7 @@ export default function DatasetUploadPage() {
                       />
                     </GuidedTourStep>
 
-                    <GuidedTourStep
+                    {!dashboardOnly && <GuidedTourStep
                       order={4}
                       title="Upload unlabeled data"
                       description="Your full dataset. Select its narrative column in the task settings."
@@ -591,19 +607,19 @@ export default function DatasetUploadPage() {
                         file={dAllFile}
                         onFileChange={setDAllFile}
                       />
-                    </GuidedTourStep>
+                    </GuidedTourStep>}
                     <Divider my={4} color={dividerColor}/>
                     <RequiredFileCard
                       inputId="validation-dataset"
                       accept=".csv,text/csv"
                       icon={<IconFileTypeCsv size={18}/>}
-                      label="Labeled D_val (optional)"
+                      label={dashboardOnly ? "Labeled dataset" : "Labeled D_val (optional)"}
                       selectLabel="Select CSV"
-                      hint="Upload an existing held-out set to skip D_val sampling. Matching narratives will be excluded from D_guide."
+                      hint={dashboardOnly ? "CSV with text and predicted labels; ID and timestamp columns are optional." : "Upload an existing held-out set to skip D_val sampling. Matching narratives will be excluded from D_guide."}
                       file={dValFile}
                       onFileChange={setDValFile}
                     />
-                    {dValFile && <TextInput
+                    {!dashboardOnly && dValFile && <TextInput
                       label="D_val label column"
                       description="Exact CSV header containing the expert labels."
                       value={config.labelColumn}
@@ -641,7 +657,7 @@ export default function DatasetUploadPage() {
                     disabled={!isReady}
                     onClick={handleUpload}
                   >
-                    {dValFile ? "Upload and prepare D_guide" : "Upload and build D_val"}
+                    {dashboardOnly ? "Create dashboard" : dValFile ? "Upload and prepare D_guide" : "Upload and build D_val"}
                   </Button>
                 </GuidedTourStep>
                 {isUploading && (

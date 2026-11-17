@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createTask,
+  createDashboardTask,
   getUserTasks,
   getTaskByID,
   uploadTaskFile,
@@ -40,6 +41,12 @@ router.post("/:taskId/guide/next", nextGuideRound);
 // Upload CSV file (returns filename to use in task creation)
 // Expects form-data with field name "file"
 router.post("/upload", uploadCSV.single("file"), uploadTaskFile);
+
+router.post("/create-dashboard", uploadBundle.fields([
+  { name: "dataset", maxCount: 1 },
+  { name: "labels_json", maxCount: 1 },
+  { name: "task_json", maxCount: 1 },
+]), createDashboardTask);
 
 // Upload D_val, D_all, task JSON, and labels JSON
 router.post(
