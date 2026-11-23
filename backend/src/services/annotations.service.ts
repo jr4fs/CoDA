@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { getCollection } from "./database.service";
 import { AuthRequest } from "./tasks.service";
 import dotenv from "dotenv";
+import { guideReviewError } from "../utils/guideReview";
 dotenv.config();
 
 const ANNOTATION_COLLECTION = process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails";
@@ -120,16 +121,9 @@ export async function updateGuideAnnotation(req: AuthRequest, res: Response) {
                 .findOne({ _id: new ObjectId(payload.taskId) as any, userID: userId });
             if (!task) return res.status(404).json({ success: false, message: "Task not found" });
             if (task.samplingVersion === 2) {
-                const labels = payload.labels;
-                const allowed = new Set(task.labels.map((label) => label.name));
-                if (!Array.isArray(labels) || !labels.length || new Set(labels).size !== labels.length ||
-                    labels.some((label) => typeof label !== "string" || !allowed.has(label)) ||
-                    (task.type === "Single-class" && labels.length !== 1)) {
-                    return res.status(400).json({ success: false, message: "Choose a valid final label set for this guide example" });
-                }
-                if (typeof payload.aiAnnotation?.isCorrect !== "boolean") {
-                    return res.status(400).json({ success: false, message: "Confirm the prediction before continuing" });
-                }
+                // Inference is saved before the user supplies their final review.
+                const error = guideReviewError(task, existing, payload);
+                if (error) return res.status(400).json({ success: false, message: error });
             }
             const updateDoc: any = { updatedAt: new Date().toISOString() };
             if (payload.labels !== undefined) updateDoc.labels = payload.labels;
