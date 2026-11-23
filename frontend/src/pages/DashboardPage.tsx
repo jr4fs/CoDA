@@ -24,7 +24,7 @@ import {
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
-import { continueGuideReview, getTaskById } from "@/services/tasks.service";
+import { getTaskById } from "@/services/tasks.service";
 import {
   isDashboardTabId,
   type DashboardTabId,
@@ -49,7 +49,6 @@ export default function DashboardPage() {
   const [evaluationReviewed, setEvaluationReviewed] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
-  const [guideLoading, setGuideLoading] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const evaluationRunRef = useRef(0);
 
@@ -150,18 +149,6 @@ export default function DashboardPage() {
     setSearchParams(nextParams);
   };
 
-  const handleContinueGuide = async () => {
-    if (!taskId) return;
-    setGuideLoading(true);
-    try {
-      await continueGuideReview(taskId);
-      navigate(`/codebook-creation/${taskId}`);
-    } catch (error) {
-      toast.error(axios.isAxiosError(error) ? error.response?.data?.message || "Could not continue D_guide" : "Could not continue D_guide");
-      setGuideLoading(false);
-    }
-  };
-
   const handleRunEvaluation = async () => {
     if (!taskId) return;
     const runId = ++evaluationRunRef.current;
@@ -202,6 +189,14 @@ export default function DashboardPage() {
               }
             : currentTask,
         );
+        // Reload the saved history as well as the latest metrics. The response
+        // remains a fallback if the refresh fails after a successful evaluation.
+        try {
+          const refreshed = await getTaskById(taskId);
+          if (runId === evaluationRunRef.current) setTask(refreshed.task ?? refreshed);
+        } catch {
+          // The evaluation response already populated the current results.
+        }
         toast.success("Evaluation complete");
       } else {
         toast.error(result.message || "Evaluation failed");
@@ -315,11 +310,6 @@ export default function DashboardPage() {
           isRunning={isRunning}
           onRunEvaluation={handleRunEvaluation}
           onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
-          onCreateTask={() => navigate("/new-codebook")}
-          onContinueGuide={() => void handleContinueGuide()}
-          guidePending={annotations.some((item) => item.source === "guide" && item.aiAnnotation?.isCorrect == null) ||
-            annotations.filter((item) => item.source === "guide").length < (task.guideBudget ?? 15)}
-          guideLoading={guideLoading}
         />
 
         {isRunning && (

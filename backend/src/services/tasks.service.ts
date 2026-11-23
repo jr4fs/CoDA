@@ -1654,8 +1654,11 @@ export async function cancelFinalInference(req: AuthRequest, res: Response) {
 async function persistFinalInferenceRows(taskId: string, userID: string, runId: string, rows: Array<Record<string, string>>) {
   const collection = getCollection<Task>(TASKS_COLLECTION);
   const filter = { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" as const };
+  const savedOutput = async () => (await collection.findOne({
+    _id: filter._id, userID, finalInferenceRunId: runId, finalInferenceStatus: "ready",
+  }))?.finalInferenceFile;
   const current = await collection.findOne(filter);
-  if (!current) return undefined;
+  if (!current) return savedOutput();
   if (!rows.length) throw new Error("Final inference returned no records");
   ensureAnnotationOutputsDir();
   const filename = `${annotationOutputPrefix(userID, taskId)}labeled-d-all-${runId}.csv`;
@@ -1667,16 +1670,19 @@ async function persistFinalInferenceRows(taskId: string, userID: string, runId: 
     const saved = await collection.updateOne(filter, {
       $set: { finalInferenceFile: filename, finalInferenceStatus: "ready", updatedAt: new Date().toISOString() },
     });
-    return saved.modifiedCount ? filename : undefined;
+    return saved.modifiedCount ? filename : savedOutput();
   } finally {
     await fs.unlink(temporary).catch(() => undefined);
   }
 }
 
 async function watchFinalInference(taskId: string, userID: string, runId: string) {
-  for (let attempt = 0; attempt < 1800; attempt++) {
+  const filter = { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" as const };
+  while (true) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     try {
+      // Stop watching when this run has been cancelled, replaced, or saved.
+      if (!await getCollection<Task>(TASKS_COLLECTION).findOne(filter, { projection: { _id: 1 } })) return;
       const { data } = await axios.get(`${ML_BASE_URL}/inference/auto-label/progress/${taskId}`, { timeout: 10_000 });
       if (!data.done) continue;
       if (data.error) throw new Error(String(data.error));
@@ -1689,7 +1695,7 @@ async function watchFinalInference(taskId: string, userID: string, runId: string
     }
   }
   await getCollection<Task>(TASKS_COLLECTION).updateOne(
-    { _id: new ObjectId(taskId) as any, userID, finalInferenceRunId: runId, finalInferenceStatus: "running" },
+    filter,
     { $set: { finalInferenceStatus: "error", updatedAt: new Date().toISOString() } },
   );
 }
