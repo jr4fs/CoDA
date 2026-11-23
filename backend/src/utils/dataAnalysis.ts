@@ -1,6 +1,7 @@
 import { createReadStream } from "fs";
 import fs from "fs/promises";
 import Papa from "papaparse";
+import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import type { AnalysisId, AnalysisPeriod, AnalysisRecord, DataAnalysisResponse } from "@common/types/dataAnalysis";
 
 interface MonthCount {
@@ -39,6 +40,12 @@ export function parsePredictedLabels(row: Record<string, string>, knownLabels: s
   return [...new Set(values.map((value) => known.get(canonical(value))).filter((value): value is string => Boolean(value)))];
 }
 
+function parseUploadedLabels(value: unknown, known: Map<string, string>): string[] {
+  return [...new Set(parseEvaluationLabels(value)
+    .map((label) => known.get(canonical(label)))
+    .filter((label): label is string => Boolean(label)))];
+}
+
 export function detectColumns(headers: string[], textColumn: string) {
   const id = headers.find((header) => /(^| )(id|identifier|case number|case no|record id|participant id|client id|patient id|youth id)( |$)/.test(canonical(header)));
   const date = headers.find((header) => /(^| )(date|timestamp|time|created at|updated at|event date|entry date)( |$)/.test(canonical(header)));
@@ -74,12 +81,13 @@ export async function streamCsv(filePath: string, visit: (row: Record<string, st
   });
 }
 
-async function analyze(filePath: string, knownLabels: string[], textColumn: string, predicted: boolean): Promise<AnalysisSnapshot> {
+async function analyze(filePath: string, knownLabels: string[], textColumn: string, predicted: boolean | string): Promise<AnalysisSnapshot> {
   const snapshot: AnalysisSnapshot = {
     totalEntries: 0, missingIds: 0, classifiedCount: 0, multiLabelCount: 0,
     datedClassifiedCount: 0, nonemptyDates: 0, validDates: 0,
     labels: {}, months: new Map(), ids: new Map(), columns: { text: textColumn },
   };
+  const known = new Map(knownLabels.map((name) => [canonical(name), name]));
   await streamCsv(filePath, (row) => {
     if (snapshot.totalEntries === 0) snapshot.columns = detectColumns(Object.keys(row), textColumn);
     snapshot.totalEntries++;
@@ -89,7 +97,9 @@ async function analyze(filePath: string, knownLabels: string[], textColumn: stri
     if (dateValue.trim()) snapshot.nonemptyDates++;
     const date = parseDate(dateValue);
     if (date) snapshot.validDates++;
-    const labels = predicted ? parsePredictedLabels(row, knownLabels) : [];
+    const labels = typeof predicted === "string"
+      ? parseUploadedLabels(row[predicted], known)
+      : predicted ? parsePredictedLabels(row, knownLabels) : [];
     if (labels.length) {
       snapshot.classifiedCount++;
       if (labels.length > 1) snapshot.multiLabelCount++;
@@ -117,7 +127,7 @@ async function analyze(filePath: string, knownLabels: string[], textColumn: stri
   return snapshot;
 }
 
-export async function loadAnalysis(filePath: string, labels: string[], textColumn: string, predicted: boolean) {
+export async function loadAnalysis(filePath: string, labels: string[], textColumn: string, predicted: boolean | string) {
   const stat = await fs.stat(filePath);
   const key = JSON.stringify([filePath, stat.size, stat.mtimeMs, labels, textColumn, predicted]);
   const existing = cache.get(key);
@@ -174,13 +184,14 @@ export function summarizeAnalysis(raw: AnalysisSnapshot, predicted: AnalysisSnap
   };
 }
 
-export async function loadAnalysisRecords(filePath: string, columns: AnalysisSnapshot["columns"], id: string, knownLabels: string[], predicted: boolean): Promise<AnalysisRecord[]> {
+export async function loadAnalysisRecords(filePath: string, columns: AnalysisSnapshot["columns"], id: string, knownLabels: string[], predicted: boolean | string): Promise<AnalysisRecord[]> {
   const records: AnalysisRecord[] = [];
+  const known = new Map(knownLabels.map((name) => [canonical(name), name]));
   if (!columns.id) return records;
   await streamCsv(filePath, (row) => {
     if (String(row[columns.id!] ?? "").trim() !== id) return;
     const date = columns.date ? parseDate(String(row[columns.date] ?? "")) : undefined;
-    records.push({ id, text: String(row[columns.text] ?? ""), labels: predicted ? parsePredictedLabels(row, knownLabels) : [], ...(date ? { timestamp: date.toISOString() } : {}) });
+    records.push({ id, text: String(row[columns.text] ?? ""), labels: typeof predicted === "string" ? parseUploadedLabels(row[predicted], known) : predicted ? parsePredictedLabels(row, knownLabels) : [], ...(date ? { timestamp: date.toISOString() } : {}) });
   });
   return records;
 }

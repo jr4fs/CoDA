@@ -22,6 +22,15 @@ class ModelMappingTests(unittest.TestCase):
             self.assertEqual(registry["qwen2.5:72b"].model, "qwen2.5:72b")
             self.assertEqual(registry["qwen:32b"].model, "qwen:32b")
 
+    def test_new_models_are_local_only(self):
+        models = ("gpt-oss:20b", "qwen3.8:27b", "gemma4:12b")
+        with patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}):
+            registry = _build_registry()
+            for model in models:
+                self.assertIn(model, selectable_model_keys("ollama"))
+                self.assertNotIn(model, selectable_model_keys("openrouter"))
+                self.assertEqual(registry[model].model, model)
+
     def test_new_qwen_selection_preserves_legacy_on_openrouter(self):
         with patch.dict(os.environ, {"LLM_PROVIDER": "openrouter", "OPENROUTER_MODEL_MAP": ""}):
             registry = _build_registry()

@@ -181,7 +181,8 @@ MODEL_KEYS = [
     "qwen2.5:72b",
     "llama3.3:70b",
 ]
-SELECTABLE_MODEL_KEYS = MODEL_KEYS
+LOCAL_MODEL_KEYS = ["gpt-oss:20b", "qwen3.8:27b", "gemma4:12b"]
+SELECTABLE_MODEL_KEYS = MODEL_KEYS + LOCAL_MODEL_KEYS
 
 # Default mapping from friendly key -> OpenRouter model slug. Slugs occasionally
 # change in the OpenRouter catalogue (https://openrouter.ai/models); override any
@@ -200,7 +201,7 @@ DEFAULT_OPENROUTER_MODEL_MAP = {
 
 def selectable_model_keys(provider: str) -> List[str]:
     if provider == "openrouter":
-        return [key for key in SELECTABLE_MODEL_KEYS if key not in ("qwen:32b", "qwen2.5:32b")]
+        return [key for key in MODEL_KEYS if key not in ("qwen:32b", "qwen2.5:32b")]
     return SELECTABLE_MODEL_KEYS
 
 
@@ -225,7 +226,7 @@ def _build_registry() -> Dict[str, Any]:
 
     # Default: Ollama. The Ollama base host is configurable for containerized dev.
     ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    return {key: OllamaAdapter(model=key, base=ollama_base) for key in MODEL_KEYS}
+    return {key: OllamaAdapter(model=key, base=ollama_base) for key in SELECTABLE_MODEL_KEYS}
 
 
 registry = _build_registry()
@@ -266,6 +267,9 @@ class AutoLabelJobResponse(BaseModel):
     job_id: str
 
 configs = {
+    "gpt-oss:20b": {"temperature": 0.4},
+    "qwen3.8:27b": {"temperature": 0.4},
+    "gemma4:12b": {"temperature": 0.4},
     "mistral:7b": {
         "temperature": 0.4,
     },

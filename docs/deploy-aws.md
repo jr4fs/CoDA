@@ -101,7 +101,10 @@ ssh ubuntu@<ip> "cd annotation_tool && docker compose exec -T node \
 ## Operations
 - **Logs:** `ssh ubuntu@<ip> "cd annotation_tool && docker compose logs -f"`
 - **Durability:** enable EBS snapshots of the root volume (uploads live in
-  `/mnt/appdata`; the DB is in Atlas with its own backups).
+  `/mnt/appdata`; the DB is in Atlas with its own backups). Back up both MongoDB
+  and `/mnt/appdata/shared_uploads` together to restore dashboard-only tasks.
+  Sign in and choose **Create Dashboard** to upload existing predictions; this
+  workflow does not run sampling or model inference. See [Docker deployment](./deploy-docker.md#dashboard-only-uploads) for CSV and report details.
 - **Cost:** t3.medium ≈ $30/mo + EBS, covered by the signup credits for months.
   OpenRouter + OpenAI are pay-per-use (embeddings are pennies).
 - **Rotate secrets:** change them in `deploy/config.env` (and Atlas/OpenAI consoles)

@@ -84,3 +84,17 @@ The same `docker-compose.yml` runs on a VM behind Caddy with real TLS. Rather th
 wiring that by hand, use the automated Terraform + one-script flow in
 [deploy-aws.md](./deploy-aws.md), which provisions the box, renders the server
 `.env`, and runs `docker compose up -d --build` for you.
+
+## Dashboard-only uploads
+
+Sign in and choose **Create Dashboard** in the sidebar. Upload a labeled CSV,
+labels JSON, and task details; specify the exact text and prediction column
+headers. Predictions may be comma-separated label names or a JSON array. ID
+and date columns are detected when available. No sampling or inference is run.
+The dashboard offers aggregate PDF reports and a separate report for each ID.
+
+Dashboard metadata and accounts live in MongoDB; uploaded CSVs live under
+`${DATA_DIR:-./data}/shared_uploads`. Back up both together and restore both
+when moving the deployment. The local Mongo named volume is not a backup; avoid
+`down -v` unless its data can be discarded. Protect backups as they contain
+uploaded records and potentially sensitive information.

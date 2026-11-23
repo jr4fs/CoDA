@@ -47,6 +47,7 @@ export const router = createBrowserRouter([
             path: "/home",
             element: <CodebookLandingPage />,
           },
+          { path: "/new-dashboard", element: <DatasetUploadPage dashboardOnly /> },
           {
             path: "/new-codebook",
             element: <DatasetUploadPage />,

@@ -84,6 +84,27 @@ export async function uploadFile(file: File): Promise<UploadFileResponse> {
   return data;
 }
 
+export async function createDashboardTask(params: {
+  dataset: File; labels: File; taskFile?: File; taskName?: string; taskDescription?: string;
+  taskType: "Multiclass" | "Single-class"; textColumn: string; labelColumn: string;
+  onProgress?: (percent: number) => void;
+}): Promise<{ success: boolean; message?: string; taskId?: string; task?: Task }> {
+  const form = new FormData();
+  form.append("dataset", params.dataset);
+  form.append("labels_json", params.labels);
+  if (params.taskFile) form.append("task_json", params.taskFile);
+  if (params.taskName) form.append("task_name", params.taskName);
+  if (params.taskDescription) form.append("task_description", params.taskDescription);
+  form.append("task_type", params.taskType);
+  form.append("text_column", params.textColumn);
+  form.append("label_column", params.labelColumn);
+  const { data } = await apiClient.post("/api/tasks/create-dashboard", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress: (event) => { if (event.total) params.onProgress?.(Math.round(event.loaded / event.total * 100)); },
+  });
+  return data;
+}
+
 export async function uploadTaskBundle(params: {
   dValFile?: File;
   dAllFile: File;
