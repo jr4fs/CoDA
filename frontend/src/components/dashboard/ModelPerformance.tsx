@@ -66,6 +66,19 @@ export default function ModelPerformance({
 
   return (
     <div className="grid gap-4">
+      {task.codebookVersions && Object.keys(task.codebookVersions).length > 0 && (
+        <div>
+          <button type="button" className="rounded-md border border-[#319b58] bg-white px-4 py-2 text-xs font-medium text-[#247a43] hover:bg-emerald-50" onClick={() => {
+            const versions = Object.values(task.codebookVersions ?? {}).sort((a, b) => a.batch - b.batch);
+            const url = URL.createObjectURL(new Blob([JSON.stringify({ taskId: task._id, versions }, null, 2)], { type: "application/json" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `codebook-versions-${task._id}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+          }}>Download batch codebooks</button>
+        </div>
+      )}
       {!task.evalResults && <p className="text-xs leading-5 text-[#667085]" role="status">
         Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on D_val only.
       </p>}

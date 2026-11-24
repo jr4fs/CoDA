@@ -181,7 +181,7 @@ MODEL_KEYS = [
     "qwen2.5:72b",
     "llama3.3:70b",
 ]
-LOCAL_MODEL_KEYS = ["gpt-oss:20b", "qwen3.8:27b", "gemma4:12b"]
+LOCAL_MODEL_KEYS = ["gpt-oss:120b", "gpt-oss:20b", "qwen3.8:27b", "gemma4:12b"]
 SELECTABLE_MODEL_KEYS = MODEL_KEYS + LOCAL_MODEL_KEYS
 
 # Default mapping from friendly key -> OpenRouter model slug. Slugs occasionally
@@ -267,6 +267,7 @@ class AutoLabelJobResponse(BaseModel):
     job_id: str
 
 configs = {
+    "gpt-oss:120b": {"temperature": 0.4},
     "gpt-oss:20b": {"temperature": 0.4},
     "qwen3.8:27b": {"temperature": 0.4},
     "gemma4:12b": {"temperature": 0.4},

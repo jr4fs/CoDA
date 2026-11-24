@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Center, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
+import { Alert, Badge, Box, Button, Center, Container, Grid, Group, Paper, Stack, Text, Tooltip, useMantineColorScheme } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal";
 import PageIntro from "../../components/common/PageIntro";
@@ -115,6 +115,9 @@ export default function AnnotationPage() {
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)}>
       <Container fluid className={styles.hero}>
         <StepTrackerBanner evaluationFlow={Boolean(controller.task.evaluationBuild)} currentStep={(controller.isCompleteStep ? 3 : 2) + (controller.task.evaluationBuild ? 1 : 0)} onHelp={controller.handleHelp} />
+        {controller.task.datasetSeparation && (controller.task.datasetSeparation.missingAll > 0 || controller.task.datasetSeparation.missingVal > 0) && <Alert color="yellow" title="Some record IDs are missing">
+          Overlap could not be checked for {controller.task.datasetSeparation.missingAll} D_all and {controller.task.datasetSeparation.missingVal} D_val rows. Those rows were retained.
+        </Alert>}
         <Paper className={styles.taskHeader} radius="md">
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
             <div className={styles.taskInfo}>

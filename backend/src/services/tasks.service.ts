@@ -29,6 +29,7 @@ import { AnnotationItem } from "@common/types/annotations";
 import { createDemoBaseline } from "../utils/demoBaseline";
 import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { generateGuideBatch } from "./evaluationBuilder.jobs";
+import { separateDatasets } from "../utils/datasetSeparation";
 dotenv.config();
 
 interface TaskValidation {
@@ -584,12 +585,26 @@ export async function getTaskByID(req: AuthRequest, res: Response) {
 }
 
 // Summarize the uploaded labeled evaluation set; full-dataset inference is not required.
+export async function downloadTaskDataset(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  const { taskId, kind } = req.params;
+  if (!userID) return res.status(401).json({ success: false, message: "Unauthorized" });
+  if (!ObjectId.isValid(taskId) || !["d_val", "d_all"].includes(kind)) return res.status(400).json({ success: false, message: "Invalid dataset request" });
+  const task = await getCollection<Task>(TASKS_COLLECTION).findOne({ _id: new ObjectId(taskId) as any, userID });
+  if (!task) return res.status(404).json({ success: false, message: "Task not found" });
+  const filename = kind === "d_val" ? task.valFile : task.file;
+  if (!filename || path.basename(filename) !== filename) return res.status(404).json({ success: false, message: "Dataset not found" });
+  const file = kind === "d_val" ? getValDatasetPath(filename) : getUploadsPath(filename);
+  return res.download(file, `${kind}-${taskId}.csv`);
+}
+
 export async function saveTaskCodebook(req: AuthRequest, res: Response) {
   try {
     const userID = req.user?.userId;
-    const { taskId, codebook } = req.body as {
+    const { taskId, codebook, batchNumber } = req.body as {
       taskId?: string;
       codebook?: unknown;
+      batchNumber?: unknown;
     };
 
     if (!userID) {
@@ -613,7 +628,27 @@ export async function saveTaskCodebook(req: AuthRequest, res: Response) {
       });
     }
 
+    if (batchNumber !== undefined && (!Number.isInteger(batchNumber) || Number(batchNumber) < 1 || Number(batchNumber) > 1000 || codebook.some((rule) => typeof rule !== "string"))) {
+      return res.status(400).json({ success: false, message: "Invalid batch snapshot" });
+    }
+
     const taskDetailsCollection = getCollection<Task>(TASKS_COLLECTION);
+    if (batchNumber !== undefined) {
+      const key = String(batchNumber);
+      const existing = await taskDetailsCollection.findOne({ _id: new ObjectId(taskId) as any, userID });
+      if (!existing) return res.status(404).json({ success: false, message: "Task not found" });
+      const prior = existing.codebookVersions?.[key];
+      if (prior && JSON.stringify(prior.codebook) !== JSON.stringify(codebook)) {
+        return res.status(409).json({ success: false, message: "This batch already has a different saved codebook." });
+      }
+      if (prior) return res.status(200).json({ success: true, message: "Batch codebook already saved" });
+      const saved = await taskDetailsCollection.updateOne(
+        { _id: new ObjectId(taskId) as any, userID, [`codebookVersions.${key}`]: { $exists: false } },
+        { $set: { codebook, updatedAt: new Date().toISOString(), [`codebookVersions.${key}`]: { batch: Number(batchNumber), codebook, savedAt: new Date().toISOString() } } },
+      );
+      if (!saved.modifiedCount) return res.status(409).json({ success: false, message: "Batch snapshot was saved concurrently. Refresh and retry." });
+      return res.status(200).json({ success: true, message: "Batch codebook saved" });
+    }
     const result = await taskDetailsCollection.updateOne(
       { _id: new ObjectId(taskId) as any, userID: userID },
       {
@@ -923,6 +958,8 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const textColumn = req.body.text_column as string | undefined;
     const labelColumn = (req.body.label_column as string | undefined) || "__evaluation_labels";
     const modelName = req.body.model_name as string | undefined;
+    const allIdColumn = String(req.body.d_all_id_column ?? "").trim();
+    const valIdColumn = String(req.body.d_val_id_column ?? "").trim();
 
     if (
       !dAllFile ||
@@ -1067,6 +1104,17 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
         message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
       });
     }
+    if (!allIdColumn || !restColumns.includes(allIdColumn)) return res.status(400).json({ success: false, message: "Specify the D_all record ID column using its exact CSV header." });
+
+    let separation: ReturnType<typeof separateDatasets> | undefined;
+    if (dValFile) {
+      if (!allIdColumn || !valIdColumn) return res.status(400).json({ success: false, message: "Specify the record ID column in both D_all and D_val." });
+      try {
+        separation = separateDatasets(dAllBuffer.toString("utf8"), dValFile.buffer.toString("utf8"), allIdColumn, valIdColumn);
+      } catch (error) {
+        return res.status(400).json({ success: false, message: error instanceof Error ? error.message : "Could not separate the datasets." });
+      }
+    }
 
     // Ensure Directories and Write Files
     console.log("[uploadTaskBundle] Step 5: Saving files to disk...");
@@ -1074,12 +1122,14 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     ensureValDatasetsDir();
     ensureUploadsDir();
 
-    const uploadFilename = generateUploadFilename(dAllFile.originalname);
+    const originalFilename = generateUploadFilename(dAllFile.originalname);
+    const uploadFilename = separation ? generateUploadFilename(dAllFile.originalname) : originalFilename;
     const valFilename = dValFile ? generateUploadFilename(dValFile.originalname) : undefined;
     const sharedUploadsPath = getUploadsPath(uploadFilename);
 
     console.log(`[uploadTaskBundle] Writing dall file to ${sharedUploadsPath}`);
-    await fs.writeFile(sharedUploadsPath, dAllBuffer, "utf-8");
+    if (separation) await fs.writeFile(getUploadsPath(originalFilename), dAllBuffer);
+    await fs.writeFile(sharedUploadsPath, separation ? separation.csv : dAllBuffer, "utf-8");
     if (dValFile && valFilename) await fs.writeFile(getValDatasetPath(valFilename), dValFile.buffer);
 
     // DB: Create Task
@@ -1097,6 +1147,8 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       valFile: valFilename,
       valFileName: dValFile?.originalname,
       inputFileName: dAllFile.originalname,
+      recordIdColumn: allIdColumn,
+      ...(separation ? { originalFile: originalFilename, datasetSeparation: { removed: separation.removed, missingAll: separation.missingAll, missingVal: separation.missingVal, allIdColumn, valIdColumn } } : {}),
       columns: textColumn ? [textColumn] : ["text"],
       userID: userID,
       labelColumn: labelColumn,
@@ -1348,6 +1400,7 @@ export async function deleteTask(req: AuthRequest, res: Response) {
 
     const candidateFilenames = new Set<string>();
     if (task.file) candidateFilenames.add(task.file);
+    if (task.originalFile) candidateFilenames.add(task.originalFile);
     if (task.restFile) candidateFilenames.add(task.restFile);
     if (task.valFile) candidateFilenames.add(task.valFile);
 

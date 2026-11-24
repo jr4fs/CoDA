@@ -64,6 +64,7 @@ export interface Task {
   // Set by the pybackend sampling queue; used to show a queue position in the UI.
   samplingQueuePosition?: number;
   codebook?: string[];
+  codebookVersions?: Record<string, { batch: number; codebook: string[]; savedAt: string }>;
   codebookSourceTaskId?: string;
   codebookSourceTaskName?: string;
   taskJsonRaw?: string;
@@ -73,6 +74,9 @@ export interface Task {
   file: string; // filename stored in /backend/uploads
   outputFile?: string; // server path of the auto-labeled output CSV
   inputFileName?: string; // original CSV filename from the user's disk
+  originalFile?: string;
+  recordIdColumn?: string;
+  datasetSeparation?: { removed: number; missingAll: number; missingVal: number; allIdColumn: string; valIdColumn: string };
   valFileName?: string; // original evaluation CSV filename
   restFile?: string;
   valFile?: string;

@@ -48,10 +48,10 @@ export async function getDataAnalysisIdRecords(taskId: string, id: string): Prom
   return data.records;
 }
 
-export async function saveTaskCodebook(taskId: string, codebook: string[]) {
+export async function saveTaskCodebook(taskId: string, codebook: string[], batchNumber?: number) {
   const { data } = await apiClient.post<{ success: boolean; message?: string }>(
     "/api/tasks/saveCodebook",
-    { taskId, codebook },
+    { taskId, codebook, batchNumber },
   );
   return data;
 }
@@ -115,6 +115,8 @@ export async function uploadTaskBundle(params: {
   labelsJsonFile: File;
   textColumn: string;
   labelColumn?: string;
+  dAllIdColumn?: string;
+  dValIdColumn?: string;
   modelName: string;
   coverageN?: number;
   useRepresentativeSampling?: boolean;
@@ -177,6 +179,8 @@ export async function uploadTaskBundle(params: {
   formData.append("labels_json", params.labelsJsonFile);
   formData.append("text_column", String(params.textColumn));
   if (params.labelColumn) formData.append("label_column", params.labelColumn);
+  if (params.dAllIdColumn) formData.append("d_all_id_column", params.dAllIdColumn);
+  if (params.dValIdColumn) formData.append("d_val_id_column", params.dValIdColumn);
   formData.append("model_name", String(params.modelName));
   formData.append(
     "coverage_n",
@@ -206,6 +210,11 @@ export async function uploadTaskBundle(params: {
 export async function getTaskById(taskId: string) {
   const { data } = await apiClient.get(`/api/tasks/getTask/${taskId}`);
   return data;
+}
+
+export async function downloadTaskDataset(taskId: string, kind: "d_val" | "d_all"): Promise<Blob> {
+  const response = await apiClient.get(`/api/tasks/${encodeURIComponent(taskId)}/dataset/${kind}`, { responseType: "blob" });
+  return response.data as Blob;
 }
 
 export async function nextGuideRound(taskId: string): Promise<{ success: boolean; count: number }> {

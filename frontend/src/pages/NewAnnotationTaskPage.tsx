@@ -236,9 +236,10 @@ export default function NewAnnotationTaskPage() {
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<AnnotationTaskConfig>(defaultConfig);
   useEffect(() => {
-    if (!taskId && modelOptions.some((option) => option.value === "qwen:32b")) {
+    const preferred = modelOptions.find((option) => option.value === "gpt-oss:120b") ?? modelOptions.find((option) => option.value === "qwen:32b");
+    if (!taskId && preferred) {
       setConfig((current) => current.selectedModel === defaultConfig.selectedModel
-        ? { ...current, selectedModel: "qwen:32b" }
+        ? { ...current, selectedModel: preferred.value }
         : current);
     }
   }, [modelOptions, taskId]);

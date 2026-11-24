@@ -36,6 +36,8 @@ interface UploadConfig {
   selectedModel: string | null;
   textColumn: string;
   labelColumn: string;
+  dAllIdColumn: string;
+  dValIdColumn: string;
   coverageSampleSize: number | "";
   evaluationBatchSize: number | "";
   evaluationTarget: number | "";
@@ -50,6 +52,8 @@ const defaultUploadConfig: UploadConfig = {
   selectedModel: "qwen2.5:72b",
   textColumn: "translated_text",
   labelColumn: "Final Label",
+  dAllIdColumn: "",
+  dValIdColumn: "",
   coverageSampleSize: DEFAULT_COVERAGE_SAMPLES,
   evaluationBatchSize: 10,
   evaluationTarget: 20,
@@ -176,9 +180,10 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
   const [labelsJsonFile, setLabelsJsonFile] = useState<File | null>(null);
   const [config, setConfig] = useState<UploadConfig>(defaultUploadConfig);
   useEffect(() => {
-    if (liveModelOptions.some((option) => option.value === "qwen:32b")) {
+    const preferred = liveModelOptions.find((option) => option.value === "gpt-oss:120b") ?? liveModelOptions.find((option) => option.value === "qwen:32b");
+    if (preferred) {
       setConfig((current) => current.selectedModel === defaultUploadConfig.selectedModel
-        ? { ...current, selectedModel: "qwen:32b" }
+        ? { ...current, selectedModel: preferred.value }
         : current);
     }
   }, [liveModelOptions]);
@@ -210,6 +215,8 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
         selectedModel: "qwen2.5:32b",
         textColumn: "translated_text",
         labelColumn: "Final Label",
+        dAllIdColumn: "id",
+        dValIdColumn: "id",
       }));
 
       // Create mock files for demo
@@ -237,7 +244,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
     dashboardOnly ? dValFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() && config.labelColumn.trim() :
     dAllFile && hasTaskDetails && labelsJsonFile && config.textColumn.trim() &&
     config.selectedModel && config.evaluationBatchSize && config.evaluationTarget &&
-    config.coverageSampleSize && (!dValFile || config.labelColumn.trim()) &&
+    config.coverageSampleSize && config.dAllIdColumn.trim() && (!dValFile || (config.labelColumn.trim() && config.dValIdColumn.trim())) &&
     (isDemo || liveModelOptions.some((model) => model.value === config.selectedModel))
   );
 
@@ -318,6 +325,8 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
         labelsJsonFile,
         textColumn: config.textColumn,
         labelColumn: dValFile ? config.labelColumn : undefined,
+        dAllIdColumn: config.dAllIdColumn.trim(),
+        dValIdColumn: dValFile ? config.dValIdColumn.trim() : undefined,
         modelName: config.selectedModel ?? "",
         coverageN:
           typeof config.coverageSampleSize === "number"
@@ -615,7 +624,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
                       icon={<IconFileTypeCsv size={18}/>}
                       label={dashboardOnly ? "Labeled dataset" : "Labeled D_val (optional)"}
                       selectLabel="Select CSV"
-                      hint={dashboardOnly ? "CSV with text and predicted labels; ID and timestamp columns are optional." : "Upload an existing held-out set to skip D_val sampling. Matching narratives will be excluded from D_guide."}
+                      hint={dashboardOnly ? "CSV with text and predicted labels; ID and timestamp columns are optional." : "Upload an existing held-out set to skip D_val sampling. Matching record IDs will be excluded from D_all."}
                       file={dValFile}
                       onFileChange={setDValFile}
                     />
@@ -626,6 +635,11 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
                       onChange={(event) => setConfigField("labelColumn", event.currentTarget.value)}
                       classNames={{ label: styles.configLabel, description: styles.configDescription, input: styles.configInput }}
                     />}
+                    {!dashboardOnly && <TextInput label="D_all record ID column" description="Exact header for the record ID in the unlabeled CSV." value={config.dAllIdColumn} onChange={(event) => setConfigField("dAllIdColumn", event.currentTarget.value)} />}
+                    {!dashboardOnly && dValFile && <>
+                      <TextInput label="D_val record ID column" description="Exact header for the same record ID in the held-out CSV." value={config.dValIdColumn} onChange={(event) => setConfigField("dValIdColumn", event.currentTarget.value)} />
+                      <Text size="xs" c="dimmed">Rows with missing IDs are retained and cannot be checked for overlap.</Text>
+                    </>}
                   </Stack>
                 </Paper>
               </Grid.Col>

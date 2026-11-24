@@ -7,7 +7,8 @@ import path from "path";
 import crypto from "crypto";
 import Papa from "papaparse";
 import { getCollection } from "./database.service";
-import { ensureValDatasetsDir, getValDatasetPath } from "../utils/fileUpload";
+import { ensureValDatasetsDir, getValDatasetPath, getUploadsPath, generateUploadFilename } from "../utils/fileUpload";
+import { separateDatasets } from "../utils/datasetSeparation";
 import { allocateQuotas, labelCounts } from "../utils/evaluationBuilder";
 import { createDemoBaseline } from "../utils/demoBaseline";
 import { tasks, rounds, timeout, taskFilter } from "./evaluationBuilder.store";
@@ -217,8 +218,22 @@ export async function finishEvaluation(task: Task, jobId: string) {
   );
   await fs.writeFile(temporary, Papa.unparse(valRows), "utf8");
   await fs.rename(temporary, destination);
+  let guideTask = task;
+  let guideExcludedIds = records.map((r) => r.recordId);
+  if (task.recordIdColumn) {
+    const originalFile = task.originalFile ?? task.file;
+    const originalCsv = await fs.readFile(getUploadsPath(originalFile), "utf8");
+    const excludedRows = records.map((record) => /^r\d+$/.test(record.recordId) ? Number(record.recordId.slice(1)) : -1).filter((index) => index >= 0);
+    const separated = separateDatasets(originalCsv, Papa.unparse(valRows), task.recordIdColumn, task.recordIdColumn, excludedRows);
+    const filteredFile = task.originalFile ? task.file : generateUploadFilename(task.file);
+    await fs.writeFile(getUploadsPath(filteredFile), separated.csv, "utf8");
+    const datasetSeparation = { removed: separated.removed, missingAll: separated.missingAll, missingVal: separated.missingVal, allIdColumn: task.recordIdColumn, valIdColumn: task.recordIdColumn };
+    await tasks().updateOne({ ...taskFilter(task._id!, task.userID), "evaluationBuild.jobId": jobId }, { $set: { originalFile, file: filteredFile, restFile: filteredFile, datasetSeparation } });
+    guideTask = { ...task, originalFile, file: filteredFile, restFile: filteredFile, datasetSeparation };
+    guideExcludedIds = [];
+  }
   const guideCount = await generateGuideBatch(
-    task, records.map((r) => r.recordId), records.map((r) => r.text),
+    guideTask, guideExcludedIds, records.map((r) => r.text),
   );
   const savedGuideCount = guideCount || await getCollection(
     process.env.ANNOTATION_COLLECTION_NAME || "AnnotationDetails",
@@ -282,7 +297,7 @@ export async function generateGuideBatch(
   if (task.valFile && !valIds.length) {
     const csv = await fs.readFile(getValDatasetPath(task.valFile), "utf8");
     const rows = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true }).data;
-    valIds = rows.map((row) => row.__evaluation_record_id).filter(Boolean);
+    valIds = task.datasetSeparation ? [] : rows.map((row) => row.__evaluation_record_id).filter(Boolean);
     excludedTexts = rows.map((row) => row[task.columns[0]] ?? row.__evaluation_text ?? "")
       .filter(Boolean);
   }

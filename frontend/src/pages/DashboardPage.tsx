@@ -24,7 +24,7 @@ import {
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
-import { getTaskById } from "@/services/tasks.service";
+import { downloadTaskDataset, getTaskById } from "@/services/tasks.service";
 import {
   isDashboardTabId,
   type DashboardTabId,
@@ -311,6 +311,24 @@ export default function DashboardPage() {
           onRunEvaluation={handleRunEvaluation}
           onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
         />
+
+        {task.datasetSeparation && <section role="status" className="rounded-md border border-border bg-card px-4 py-3 text-sm">
+          D_all excludes {task.datasetSeparation.removed} matching D_val records.
+          {(task.datasetSeparation.missingAll > 0 || task.datasetSeparation.missingVal > 0) && ` Overlap is unverified for ${task.datasetSeparation.missingAll} D_all and ${task.datasetSeparation.missingVal} D_val rows with missing IDs.`}
+        </section>}
+        <div className="flex flex-wrap gap-3">
+          {(["d_val", "d_all"] as const).map((kind) => <button key={kind} type="button" disabled={kind === "d_val" && !task.valFile} className="rounded-md border border-border bg-card px-3 py-2 text-xs disabled:opacity-50" onClick={async () => {
+            try {
+              const blob = await downloadTaskDataset(taskId!, kind);
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `${kind}-${taskId}.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+            } catch { toast.error(`Could not download ${kind}.`); }
+          }}>Download {kind}</button>)}
+        </div>
 
         {isRunning && (
           <section

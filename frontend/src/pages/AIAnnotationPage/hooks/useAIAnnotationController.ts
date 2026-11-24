@@ -89,6 +89,7 @@ export const useAIAnnotationController = () => {
   };
 
   const codebookState = useCodebookManager({ task });
+  const pendingBatchRef = useRef<{ taskId: string; batch: number; codebook: string[] } | null>(null);
   const hasPriorReview = Boolean(task?.codebookComplete || guideAnnotations.some(
     (annotation) => typeof annotation.aiAnnotation?.isCorrect === "boolean",
   ));
@@ -266,7 +267,7 @@ export const useAIAnnotationController = () => {
     }
   };
 
-  const handleCommitBatch = async (): Promise<string[]> => {
+  const handleCommitBatch = async (): Promise<string[] | null> => {
     reviewState.setIsLoading(true);
     let committedCodebook = codebookState.codebook;
 
@@ -281,8 +282,6 @@ export const useAIAnnotationController = () => {
 
       const batchCorrect = batchResultsList.filter(([, res]) => res.isCorrect === true).length;
       const batchAttempted = batchResultsList.length;
-      setTotalCorrect((prev) => prev + batchCorrect);
-      setTotalAttempted((prev) => prev + batchAttempted);
 
       const ruleSynthesisItems: RuleSynthesisItem[] = batchResultsList
         .filter(([, result]) => {
@@ -310,8 +309,8 @@ export const useAIAnnotationController = () => {
               : task?.labels.map((item) => item.name) || [],
             user_feedback: result.feedback,
             user_label_feedback: result.isCorrect || false,
-            user_span_feedback: result.spanFeedback || true,
-            user_reasoning_feedback: result.reasoningFeedback || true,
+            user_span_feedback: result.spanFeedback ?? true,
+            user_reasoning_feedback: result.reasoningFeedback ?? true,
           };
         });
 
@@ -323,9 +322,8 @@ export const useAIAnnotationController = () => {
           model_name: task.modelName || "mistral:7b",
         };
         const response = await ruleSynthesis(request);
-        if (response.success) {
-          nextCodebook = [...nextCodebook, ...response.rules];
-        }
+        if (!response.success) throw new Error("Rule synthesis failed");
+        nextCodebook = [...nextCodebook, ...response.rules];
       }
 
       nextCodebook = [
@@ -336,10 +334,13 @@ export const useAIAnnotationController = () => {
       codebookState.setCodebook(nextCodebook);
       codebookState.setStagedRules([]);
       codebookState.setStagedRulesDeletion([]);
+      setTotalCorrect((prev) => prev + batchCorrect);
+      setTotalAttempted((prev) => prev + batchAttempted);
       committedCodebook = nextCodebook;
     } catch (error) {
       console.error("Failed to synthesize rules:", error);
       toast.error("Failed to synthesize new rules for this batch");
+      return null;
     } finally {
       reviewState.setIsLoading(false);
     }
@@ -348,7 +349,7 @@ export const useAIAnnotationController = () => {
   };
 
   // Finalize the review session: generate metrics, export the codebook, open the
-  // completion popup, and kick off the held-out (d_val) evaluation. Shared by the
+  // completion popup. Shared by the
   // normal "complete the last batch" path and the "Exit" button.
   const finalizeReview = async (committedCodebook: string[]) => {
     if (!task?._id) return;
@@ -399,24 +400,33 @@ export const useAIAnnotationController = () => {
 
     const shouldGenerateMetrics = reviewState.isLastBatch;
     let committedCodebook: string[] = [];
+    const isBatchEnd = reviewState.currentBatchProgress === reviewState.actualBatchSize;
 
-    if (reviewState.currentBatchProgress === reviewState.actualBatchSize) {
-      committedCodebook = await handleCommitBatch();
+    if (!await reviewState.handleNextClick(!isBatchEnd)) return;
+
+    if (isBatchEnd) {
+      const batch = reviewState.currentBatchIndex + 1;
+      const pending = pendingBatchRef.current;
+      const saved = task?.codebookVersions?.[String(batch)]?.codebook;
+      const result = pending && pending.taskId === task?._id && pending.batch === batch ? pending.codebook : saved ?? await handleCommitBatch();
+      if (!result) return;
+      committedCodebook = result;
       if (task?._id) {
+        pendingBatchRef.current = { taskId: task._id, batch, codebook: committedCodebook };
         try {
-          await saveTaskCodebook(task._id, committedCodebook);
+          await saveTaskCodebook(task._id, committedCodebook, batch);
         } catch (error: any) {
           toast.error(error?.message || "Failed to auto-save codebook after batch commit");
+          return;
         }
       }
     }
-
-    if (!await reviewState.handleNextClick()) return;
 
     if (shouldGenerateMetrics && task?.samplingVersion === 2 && task._id && reviewState.totalSamples < (task.guideBudget ?? 15)) {
       try {
         const next = await nextGuideRound(task._id);
         if (next.count > 0) {
+          pendingBatchRef.current = null;
           const nextIndex = reviewState.totalSamples;
           await refreshTaskData();
           reviewState.setCurrentIndex(nextIndex);
@@ -430,7 +440,11 @@ export const useAIAnnotationController = () => {
     }
 
     if (shouldGenerateMetrics && task?._id) {
+      pendingBatchRef.current = null;
       await finalizeReview(committedCodebook);
+    } else if (isBatchEnd) {
+      pendingBatchRef.current = null;
+      reviewState.setCurrentIndex(reviewState.currentIndex + 1);
     }
   };
 
@@ -445,12 +459,20 @@ export const useAIAnnotationController = () => {
 
     let committedCodebook = codebookState.codebook;
     if (reviewState.currentBatchProgress > 0) {
-      committedCodebook = await handleCommitBatch();
+      if (!reviewState.nextDisabled && !await reviewState.handleNextClick(false)) return;
+      const batch = reviewState.currentBatchIndex + 1;
+      const pending = pendingBatchRef.current;
+      const saved = task?.codebookVersions?.[String(batch)]?.codebook;
+      const result = pending && pending.taskId === task?._id && pending.batch === batch ? pending.codebook : saved ?? await handleCommitBatch();
+      if (!result) return;
+      committedCodebook = result;
       if (task?._id) {
+        pendingBatchRef.current = { taskId: task._id, batch, codebook: committedCodebook };
         try {
-          await saveTaskCodebook(task._id, committedCodebook);
+          await saveTaskCodebook(task._id, committedCodebook, batch);
         } catch (error: any) {
           toast.error(error?.message || "Failed to auto-save codebook on exit");
+          return;
         }
       }
     }
@@ -631,6 +653,7 @@ export const useAIAnnotationController = () => {
           });
         }
         toast.success("Evaluation complete");
+        await refreshTaskData();
       } else {
         toast.error(res.message || "Evaluation failed");
       }
@@ -748,7 +771,8 @@ export const useAIAnnotationController = () => {
           codebookState.codebook,
           codebookState.lastPromptUsed,
         );
-        toast.success("Codebook exported.");
+        downloadContent(`codebook-${task._id}.txt`, codebookState.codebook.join("\n"), "text/plain");
+        toast.success("Codebook downloaded.");
       } catch (error: any) {
         toast.error(error?.message || "Failed to export codebook.");
       }

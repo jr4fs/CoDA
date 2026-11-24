@@ -21,6 +21,7 @@ import {
   cancelFinalInference,
   markCodebookComplete,
   saveFinalInferenceResult,
+  downloadTaskDataset,
 } from "../services/tasks.service";
 import { getDataAnalysisSummary, getDataAnalysisIdRecords } from "../services/dataAnalysis.service";
 import { uploadCSV, uploadBundle } from "../utils/fileUpload";
@@ -94,6 +95,7 @@ router.get("/getTasks", getUserTasks);
 
 // Get a single task's details
 router.get("/getTask/:taskId", getTaskByID);
+router.get("/:taskId/dataset/:kind", downloadTaskDataset);
 
 // Full-dataset analytics; evaluation samples are never the chart source.
 router.get("/data-analysis/:taskId", getDataAnalysisSummary);

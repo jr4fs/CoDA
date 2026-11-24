@@ -23,7 +23,7 @@ class ModelMappingTests(unittest.TestCase):
             self.assertEqual(registry["qwen:32b"].model, "qwen:32b")
 
     def test_new_models_are_local_only(self):
-        models = ("gpt-oss:20b", "qwen3.8:27b", "gemma4:12b")
+        models = ("gpt-oss:120b", "gpt-oss:20b", "qwen3.8:27b", "gemma4:12b")
         with patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}):
             registry = _build_registry()
             for model in models:

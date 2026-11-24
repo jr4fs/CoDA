@@ -287,7 +287,7 @@ export function useAnnotationReviewFlow({
     void runInference();
   }, [annotationsForReview, currentBatchIndex, currentIndex, handleClickAnnotation, task?._id, getCodebookSnapshot, reviewEnabled]);
 
-  const handleNextClick = async () => {
+  const handleNextClick = async (advance = true) => {
     try {
       const currentAIResult = batchResults[currentIndex];
       if (currentAIResult && task?._id && currentSample && currentAnnotation) {
@@ -356,6 +356,7 @@ export function useAnnotationReviewFlow({
       return false;
     }
 
+    if (!advance) return true;
     if (currentIndex < totalSamples - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
