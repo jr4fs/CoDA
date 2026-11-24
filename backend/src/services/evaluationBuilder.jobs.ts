@@ -64,9 +64,7 @@ function initialQueries(task: Task) {
 }
 
 function samplingQueries(task: Task) {
-  return task.samplingVersion === 2
-    ? Object.fromEntries(task.labels.map((label) => [label.name, label.keywords]))
-    : initialQueries(task);
+  return initialQueries(task);
 }
 
 export async function failJob(task: Task, jobId: string, error: unknown) {

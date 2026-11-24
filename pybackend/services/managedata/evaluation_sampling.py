@@ -158,12 +158,7 @@ class EvaluationSampler:
         remaining = set(available)
         # Allocate scarce labels first (Node orders quotas by running count).
         # A record is reserved once; subsequent labels retrieve replacements.
-        random = np.random.default_rng(request.seed)
-        if request.iteration == 0:
-            chosen = random.choice(available, size=min(len(available), sum(request.quotas.values())), replace=False).tolist()
-            selected.extend(chosen)
-            remaining.difference_update(chosen)
-        for label, quota in ([] if request.iteration == 0 else request.quotas.items()):
+        for label, quota in request.quotas.items():
             if quota <= 0 or not remaining:
                 continue
             queries = list(dict.fromkeys(q.strip() for q in request.queries.get(label, []) if q.strip()))
@@ -179,7 +174,8 @@ class EvaluationSampler:
                 candidates = relevant_candidates(index, query_vectors, owners, remaining, wanted)
                 chosen = [candidates[i] for i in coverage_indices(record_vectors[candidates], quota, anchors=anchors)]
             else:
-                chosen = random.choice(sorted(remaining), size=min(quota, len(remaining)), replace=False).tolist()
+                candidates = sorted(remaining)
+                chosen = [candidates[i] for i in coverage_indices(record_vectors[candidates], quota, anchors=anchors)]
             selected.extend(chosen)
             remaining.difference_update(chosen)
 

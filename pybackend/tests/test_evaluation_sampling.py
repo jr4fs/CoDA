@@ -44,7 +44,7 @@ class EvaluationSamplingTests(unittest.TestCase):
             self.assertIn(["confirmed example"], model.calls)
             self.assertNotIn(["lawyer keyword"], model.calls)
 
-    def test_new_workflow_caches_before_random_round_and_reuses_vectors(self):
+    def test_first_round_uses_coverage_and_reuses_cached_vectors(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "shared_uploads").mkdir()
@@ -53,9 +53,11 @@ class EvaluationSamplingTests(unittest.TestCase):
             request = EvaluationSamplingRequest(task_id="c" * 24, file_path="notes.csv", text_col=["note"], queries={"Legal": ["lawyer"]}, quotas={"Legal": 4}, iteration=0, seed=17)
             first = EvaluationSampler(request, root, model).run()
             self.assertTrue((root / "shared_uploads" / f".evaluation-{'c' * 24}.npz").exists())
+            self.assertIn(["lawyer"], model.calls)
             calls = len(model.calls)
             self.assertEqual([r["recordId"] for r in first["records"]], [r["recordId"] for r in EvaluationSampler(request, root, model).run()["records"]])
-            self.assertEqual(len(model.calls), calls)
+            self.assertEqual(len(model.calls), calls + 1, "repeat selection only re-embeds the query")
+            calls = len(model.calls)
             request.iteration = 1
             request.examples = {"Legal": [first["records"][0]["text"]]}
             request.excluded = [r["recordId"] for r in first["records"]]

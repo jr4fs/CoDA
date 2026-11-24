@@ -1,5 +1,13 @@
 import Papa from "papaparse";
 
+export function findIdColumn(columns: string[]): string {
+  const exact = columns.filter((column) => column.trim().toLowerCase() === "id");
+  if (exact.length === 1) return exact[0];
+  const candidates = columns.filter((column) => /(?:^|[^a-z0-9])id(?:$|[^a-z0-9])|identifier/i.test(column.trim()) || /[a-z0-9]Id$/.test(column.trim()));
+  if (candidates.length !== 1) throw new Error(candidates.length ? "Multiple possible ID columns found; use a single unambiguous ID column." : "No ID column found in the dataset.");
+  return candidates[0];
+}
+
 export function separateDatasets(allCsv: string, valCsv: string, allId: string, valId: string, excludedRows: number[] = []) {
   const all = Papa.parse<Record<string, string>>(allCsv, { header: true, skipEmptyLines: true });
   const val = Papa.parse<Record<string, string>>(valCsv, { header: true, skipEmptyLines: true });

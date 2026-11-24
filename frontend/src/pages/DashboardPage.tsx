@@ -312,9 +312,8 @@ export default function DashboardPage() {
           onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
         />
 
-        {task.datasetSeparation && <section role="status" className="rounded-md border border-border bg-card px-4 py-3 text-sm">
-          D_all excludes {task.datasetSeparation.removed} matching D_val records.
-          {(task.datasetSeparation.missingAll > 0 || task.datasetSeparation.missingVal > 0) && ` Overlap is unverified for ${task.datasetSeparation.missingAll} D_all and ${task.datasetSeparation.missingVal} D_val rows with missing IDs.`}
+        {task.datasetSeparation && (task.datasetSeparation.missingAll > 0 || task.datasetSeparation.missingVal > 0) && <section role="status" className="rounded-md border border-border bg-card px-4 py-3 text-sm">
+          Overlap is unverified for {task.datasetSeparation.missingAll} D_all and {task.datasetSeparation.missingVal} D_val rows with missing IDs.
         </section>}
         <div className="flex flex-wrap gap-3">
           {(["d_val", "d_all"] as const).map((kind) => <button key={kind} type="button" disabled={kind === "d_val" && !task.valFile} className="rounded-md border border-border bg-card px-3 py-2 text-xs disabled:opacity-50" onClick={async () => {

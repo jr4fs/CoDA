@@ -29,7 +29,7 @@ import { AnnotationItem } from "@common/types/annotations";
 import { createDemoBaseline } from "../utils/demoBaseline";
 import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { generateGuideBatch } from "./evaluationBuilder.jobs";
-import { separateDatasets } from "../utils/datasetSeparation";
+import { findIdColumn, separateDatasets } from "../utils/datasetSeparation";
 dotenv.config();
 
 interface TaskValidation {
@@ -958,8 +958,6 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const textColumn = req.body.text_column as string | undefined;
     const labelColumn = (req.body.label_column as string | undefined) || "__evaluation_labels";
     const modelName = req.body.model_name as string | undefined;
-    const allIdColumn = String(req.body.d_all_id_column ?? "").trim();
-    const valIdColumn = String(req.body.d_val_id_column ?? "").trim();
 
     if (
       !dAllFile ||
@@ -1104,11 +1102,17 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
         message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
       });
     }
-    if (!allIdColumn || !restColumns.includes(allIdColumn)) return res.status(400).json({ success: false, message: "Specify the D_all record ID column using its exact CSV header." });
+    let allIdColumn: string;
+    let valIdColumn = "";
+    try {
+      allIdColumn = findIdColumn(restColumns);
+      if (dValFile) valIdColumn = findIdColumn(valColumns);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error instanceof Error ? error.message : "Could not identify a record ID column." });
+    }
 
     let separation: ReturnType<typeof separateDatasets> | undefined;
     if (dValFile) {
-      if (!allIdColumn || !valIdColumn) return res.status(400).json({ success: false, message: "Specify the record ID column in both D_all and D_val." });
       try {
         separation = separateDatasets(dAllBuffer.toString("utf8"), dValFile.buffer.toString("utf8"), allIdColumn, valIdColumn);
       } catch (error) {

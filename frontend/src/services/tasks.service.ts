@@ -115,8 +115,6 @@ export async function uploadTaskBundle(params: {
   labelsJsonFile: File;
   textColumn: string;
   labelColumn?: string;
-  dAllIdColumn?: string;
-  dValIdColumn?: string;
   modelName: string;
   coverageN?: number;
   useRepresentativeSampling?: boolean;
@@ -179,8 +177,6 @@ export async function uploadTaskBundle(params: {
   formData.append("labels_json", params.labelsJsonFile);
   formData.append("text_column", String(params.textColumn));
   if (params.labelColumn) formData.append("label_column", params.labelColumn);
-  if (params.dAllIdColumn) formData.append("d_all_id_column", params.dAllIdColumn);
-  if (params.dValIdColumn) formData.append("d_val_id_column", params.dValIdColumn);
   formData.append("model_name", String(params.modelName));
   formData.append(
     "coverage_n",

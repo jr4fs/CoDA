@@ -1,6 +1,13 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { separateDatasets } from "./datasetSeparation";
+import { findIdColumn, separateDatasets } from "./datasetSeparation";
+
+test("detects an unambiguous ID column", () => {
+  assert.equal(findIdColumn(["text", "ID", "user_id"]), "ID");
+  assert.equal(findIdColumn(["text", "record_id"]), "record_id");
+  assert.throws(() => findIdColumn(["text", "user_id", "post_id"]));
+  assert.throws(() => findIdColumn(["text", "valid"]));
+});
 
 test("removes all matching IDs and preserves rows with missing IDs", () => {
   const result = separateDatasets("id,text\na,one\na,two\nb,three\n,unknown", "key,label\na,yes\n,unknown", "id", "key");
