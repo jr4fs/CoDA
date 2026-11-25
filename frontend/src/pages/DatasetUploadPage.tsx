@@ -169,6 +169,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
 
   const [dValFile, setDValFile] = useState<File | null>(null);
   const [dAllFile, setDAllFile] = useState<File | null>(null);
+  const [fullDatasetFile, setFullDatasetFile] = useState<File | null>(null);
   const [taskJsonFile, setTaskJsonFile] = useState<File | null>(null);
   const [taskDetailsMode, setTaskDetailsMode] = useState<"file" | "manual">("file");
   const [manualTaskName, setManualTaskName] = useState("");
@@ -254,6 +255,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
   const handleReset = useCallback(() => {
     setDValFile(null);
     setDAllFile(null);
+    setFullDatasetFile(null);
     setTaskJsonFile(null);
     setTaskDetailsMode("file");
     setManualTaskName("");
@@ -311,6 +313,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
         onProgress: setUploadProgress,
         dValFile: dValFile ?? undefined,
         dAllFile: dAllFile!,
+        fullDatasetFile: fullDatasetFile ?? undefined,
         taskJsonFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
         taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
         taskDescription:
@@ -356,6 +359,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
     config,
     dashboardOnly,
     dAllFile,
+    fullDatasetFile,
     dValFile,
     hasTaskDetails,
     isDemo,
@@ -602,13 +606,23 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
                         inputId="unlabeled-dataset"
                         accept=".csv,text/csv"
                         icon={<IconFileTypeCsv size={18}/>}
-                        label="Unlabeled dataset"
+                        label="Dataset for review"
                         selectLabel="Select CSV"
-                        hint="CSV with the configured text column; ID and date columns are optional"
+                        hint="CSV of the notes to sample for D_val and codebook development."
                         file={dAllFile}
                         onFileChange={setDAllFile}
                       />
                     </GuidedTourStep>}
+                    {!dashboardOnly && <RequiredFileCard
+                      inputId="full-dataset"
+                      accept=".csv,text/csv"
+                      icon={<IconFileTypeCsv size={18}/>}
+                      label="Full dataset for later annotation (optional)"
+                      selectLabel="Select CSV"
+                      hint="Upload the unfiltered dataset for later annotation. D_val matches will be excluded by case-note text. If omitted, the review dataset is used."
+                      file={fullDatasetFile}
+                      onFileChange={setFullDatasetFile}
+                    />}
                     <Divider my={4} color={dividerColor}/>
                     <RequiredFileCard
                       inputId="validation-dataset"
@@ -616,7 +630,7 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
                       icon={<IconFileTypeCsv size={18}/>}
                       label={dashboardOnly ? "Labeled dataset" : "Labeled D_val (optional)"}
                       selectLabel="Select CSV"
-                      hint={dashboardOnly ? "CSV with text and predicted labels; ID and timestamp columns are optional." : "Upload an existing held-out set to skip D_val sampling. Matching record IDs will be excluded from D_all."}
+                      hint={dashboardOnly ? "CSV with text and predicted labels; ID and timestamp columns are optional." : "Upload an existing held-out set to skip D_val sampling. Matching case-note text will be excluded from D_all."}
                       file={dValFile}
                       onFileChange={setDValFile}
                     />

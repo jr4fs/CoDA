@@ -115,8 +115,9 @@ export default function AnnotationPage() {
       <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)}>
       <Container fluid className={styles.hero}>
         <StepTrackerBanner evaluationFlow={Boolean(controller.task.evaluationBuild)} currentStep={(controller.isCompleteStep ? 3 : 2) + (controller.task.evaluationBuild ? 1 : 0)} onHelp={controller.handleHelp} />
-        {controller.task.datasetSeparation && (controller.task.datasetSeparation.missingAll > 0 || controller.task.datasetSeparation.missingVal > 0) && <Alert color="yellow" title="Some record IDs are missing">
+        {controller.task.datasetSeparation && (controller.task.datasetSeparation.missingAll > 0 || controller.task.datasetSeparation.missingVal > 0 || (controller.task.datasetSeparation.fullMissing ?? 0) > 0) && <Alert color="yellow" title={controller.task.datasetSeparation.matchBy === "text" ? "Some case notes are missing" : "Some record IDs are missing"}>
           Overlap could not be checked for {controller.task.datasetSeparation.missingAll} D_all and {controller.task.datasetSeparation.missingVal} D_val rows. Those rows were retained.
+          {(controller.task.datasetSeparation.fullMissing ?? 0) > 0 && ` The full dataset also has ${controller.task.datasetSeparation.fullMissing} rows with missing case notes.`}
         </Alert>}
         <Paper className={styles.taskHeader} radius="md">
           <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">

@@ -1,13 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { findIdColumn, separateDatasets } from "./datasetSeparation";
-
-test("detects an unambiguous ID column", () => {
-  assert.equal(findIdColumn(["text", "ID", "user_id"]), "ID");
-  assert.equal(findIdColumn(["text", "record_id"]), "record_id");
-  assert.throws(() => findIdColumn(["text", "user_id", "post_id"]));
-  assert.throws(() => findIdColumn(["text", "valid"]));
-});
+import { separateDatasets } from "./datasetSeparation";
 
 test("removes all matching IDs and preserves rows with missing IDs", () => {
   const result = separateDatasets("id,text\na,one\na,two\nb,three\n,unknown", "key,label\na,yes\n,unknown", "id", "key");
@@ -36,4 +29,29 @@ test("excludes known held-out row positions even when IDs are missing", () => {
   assert.equal(result.removed, 1);
   assert.doesNotMatch(result.csv, /held out/);
   assert.match(result.csv, /,keep/);
+});
+
+test("removes matching case notes despite different IDs and whitespace", () => {
+  const result = separateDatasets('id,note\na,"A  case note"\nb,"A case note"\nc,Other\nd,', 'id,note\nz," A case note "\ny,', "note", "note", [], true);
+  assert.equal(result.removed, 2);
+  assert.equal(result.missingAll, 1);
+  assert.equal(result.missingVal, 1);
+  assert.match(result.csv, /c,Other/);
+  assert.doesNotMatch(result.csv, /case note/);
+});
+
+test("does not remove a different note just because IDs match", () => {
+  const result = separateDatasets("id,note\na,First\nb,Second", "id,note\na,Different", "note", "note", [], true);
+  assert.equal(result.removed, 0);
+  assert.match(result.csv, /a,First/);
+});
+
+test("filters review and full datasets independently against the same D_val", () => {
+  const val = "note,label\nShared,yes";
+  const review = separateDatasets("note\nShared\nReview only", val, "note", "note", [], true);
+  const full = separateDatasets("note\nShared\nReview only\nOutside review", val, "note", "note", [], true);
+  assert.doesNotMatch(review.csv, /Shared/);
+  assert.doesNotMatch(full.csv, /Shared/);
+  assert.doesNotMatch(review.csv, /Outside review/);
+  assert.match(full.csv, /Outside review/);
 });

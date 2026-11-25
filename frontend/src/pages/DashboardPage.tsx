@@ -24,7 +24,10 @@ import {
   getValEvalProgress,
   runValEvaluation,
 } from "@/services/metrics.service";
-import { downloadTaskDataset, getTaskById } from "@/services/tasks.service";
+import { downloadAnnotationOutputFile, downloadTaskDataset, getAutoLabelProgress, getTaskById } from "@/services/tasks.service";
+import { downloadContent } from "@/utils/downloadContent";
+import { Download } from "lucide-react";
+import { buildCodebookExport } from "@/utils/dashboard/codebookExport";
 import {
   isDashboardTabId,
   type DashboardTabId,
@@ -35,6 +38,7 @@ import {
 } from "@/utils/dashboard/sessionMetrics";
 
 const DEFAULT_TAB: DashboardTabId = "session-details";
+const downloadButtonClass = "inline-flex min-h-10 items-center gap-2 rounded-md border border-[#319b58] bg-white px-4 text-xs font-medium text-[#247a43] hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function DashboardPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -50,6 +54,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
+  const [fullProgress, setFullProgress] = useState({ completed: 0, total: 0 });
+  const [fullError, setFullError] = useState<string | null>(null);
   const evaluationRunRef = useRef(0);
 
   const requestedTab = searchParams.get("tab");
@@ -140,6 +146,32 @@ export default function DashboardPage() {
       if (intervalId) clearInterval(intervalId);
     };
   }, [taskId, task]);
+
+  useEffect(() => {
+    setFullError(null);
+    setFullProgress({ completed: 0, total: 0 });
+    if (!taskId || task?.finalInferenceStatus !== "running") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const next = await getAutoLabelProgress(taskId);
+        if (cancelled) return;
+        setFullProgress({ completed: next.completed, total: next.total });
+        if (next.done && (next.error || next.cancelled || next.outputFile)) {
+          if (next.error) setFullError(next.error);
+          try {
+            const refreshed = await getTaskById(taskId);
+            if (!cancelled) setTask(refreshed.task ?? refreshed);
+            return;
+          } catch { /* Retry the refresh on the next poll. */ }
+        }
+      } catch { /* Retry transient failures. */ }
+      if (!cancelled) timer = setTimeout(() => void poll(), 1500);
+    };
+    void poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [taskId, task?.finalInferenceStatus]);
 
   const handleTabChange = (value: string) => {
     if (!isDashboardTabId(value)) return;
@@ -312,8 +344,26 @@ export default function DashboardPage() {
           onOpenFullInference={() => navigate(`/codebook-creation/${taskId}?results=1`)}
         />
 
-        {task.datasetSeparation && (task.datasetSeparation.missingAll > 0 || task.datasetSeparation.missingVal > 0) && <section role="status" className="rounded-md border border-border bg-card px-4 py-3 text-sm">
-          Overlap is unverified for {task.datasetSeparation.missingAll} D_all and {task.datasetSeparation.missingVal} D_val rows with missing IDs.
+        <section aria-label="Download results" className="flex flex-wrap items-center gap-3">
+          <span className="mr-1 text-xs font-semibold text-muted-foreground">Download results</span>
+          <button type="button" disabled={!task.finalInferenceFile} className={downloadButtonClass} onClick={async () => {
+            if (!task.finalInferenceFile) return;
+            try {
+              const blob = await downloadAnnotationOutputFile(task.finalInferenceFile);
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url; link.download = task.finalInferenceFile; link.click(); URL.revokeObjectURL(url);
+            } catch { toast.error("D_all predictions could not be downloaded."); }
+          }}><Download size={15} aria-hidden="true" /> D_all predictions</button>
+          <button type="button" disabled={!task.evalResults?.predictionsFilename} className={downloadButtonClass} onClick={() => task.evalResults?.predictionsFilename && void handleDownloadPredictions(task.evalResults.predictionsFilename)}><Download size={15} aria-hidden="true" /> D_val predictions</button>
+          <button type="button" disabled={!Object.keys(task.codebookVersions ?? {}).length} className={downloadButtonClass} onClick={() => {
+            downloadContent(`codebook-versions-${task._id}.json`, JSON.stringify(buildCodebookExport(task, annotations), null, 2));
+          }}><Download size={15} aria-hidden="true" /> Batch codebooks</button>
+        </section>
+
+        {task.datasetSeparation && (task.datasetSeparation.missingAll > 0 || task.datasetSeparation.missingVal > 0 || (task.datasetSeparation.fullMissing ?? 0) > 0) && <section role="status" className="rounded-md border border-border bg-card px-4 py-3 text-sm">
+          Overlap is unverified for {task.datasetSeparation.missingAll} D_all and {task.datasetSeparation.missingVal} D_val rows with missing {task.datasetSeparation.matchBy === "text" ? "case notes" : "IDs"}.
+          {(task.datasetSeparation.fullMissing ?? 0) > 0 && ` The full dataset also has ${task.datasetSeparation.fullMissing} rows with missing case notes.`}
         </section>}
         <div className="flex flex-wrap gap-3">
           {(["d_val", "d_all"] as const).map((kind) => <button key={kind} type="button" disabled={kind === "d_val" && !task.valFile} className="rounded-md border border-border bg-card px-3 py-2 text-xs disabled:opacity-50" onClick={async () => {
@@ -359,6 +409,18 @@ export default function DashboardPage() {
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
+          </section>
+        )}
+
+        {(task.finalInferenceStatus || fullError) && (
+          <section className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm" aria-label="D_all inference progress" role="status">
+            <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+              <span>{fullError ? `D_all inference failed: ${fullError}` : task.finalInferenceStatus === "ready" ? "D_all inference complete" : task.finalInferenceStatus === "error" ? "D_all inference failed" : task.finalInferenceStatus === "cancelled" ? "D_all inference cancelled" : fullProgress.total > 0 ? `D_all: ${fullProgress.completed} of ${fullProgress.total} rows labeled` : "Starting D_all inference…"}</span>
+              {task.finalInferenceStatus === "running" && !fullError && fullProgress.total > 0 && <span className="font-dashboard text-foreground">{Math.round(Math.min(100, fullProgress.completed / fullProgress.total * 100))}%</span>}
+            </div>
+            {task.finalInferenceStatus === "running" && !fullError && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label="D_all progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fullProgress.total > 0 ? Math.round(Math.min(100, fullProgress.completed / fullProgress.total * 100)) : 0}>
+              <div className="h-full rounded-full bg-success transition-[width] duration-300" style={{ width: `${fullProgress.total > 0 ? Math.min(100, fullProgress.completed / fullProgress.total * 100) : 0}%` }} />
+            </div>}
           </section>
         )}
 

@@ -55,6 +55,7 @@ router.post(
   uploadBundle.fields([
     { name: "d_val", maxCount: 1 },
     { name: "d_all", maxCount: 1 },
+    { name: "d_all_full", maxCount: 1 },
     { name: "labels_json", maxCount: 1 },
     { name: "task_json", maxCount: 1 },
   ]),
@@ -67,6 +68,7 @@ router.post(
   uploadBundle.fields([
     { name: "d_val", maxCount: 1 },
     { name: "d_all", maxCount: 1 },
+    { name: "d_all_full", maxCount: 1 },
     { name: "labels_json", maxCount: 1 },
     { name: "task_json", maxCount: 1 },
   ]),

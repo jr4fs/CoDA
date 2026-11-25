@@ -108,6 +108,7 @@ export async function createDashboardTask(params: {
 export async function uploadTaskBundle(params: {
   dValFile?: File;
   dAllFile: File;
+  fullDatasetFile?: File;
   taskJsonFile?: File;
   taskName?: string;
   taskDescription?: string;
@@ -160,6 +161,7 @@ export async function uploadTaskBundle(params: {
   }
   // Keep the original .csv filename so the server derives the stored name correctly.
   formData.append("d_all", dAllPart, params.dAllFile.name);
+  if (params.fullDatasetFile) formData.append("d_all_full", params.fullDatasetFile);
   formData.append("d_all_gzip", String(dAllGzip));
 
   if (params.taskJsonFile) {

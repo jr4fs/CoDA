@@ -29,7 +29,7 @@ import { AnnotationItem } from "@common/types/annotations";
 import { createDemoBaseline } from "../utils/demoBaseline";
 import { parseEvaluationLabels } from "@common/utils/evaluationLabels";
 import { generateGuideBatch } from "./evaluationBuilder.jobs";
-import { findIdColumn, separateDatasets } from "../utils/datasetSeparation";
+import { separateDatasets } from "../utils/datasetSeparation";
 dotenv.config();
 
 interface TaskValidation {
@@ -592,7 +592,7 @@ export async function downloadTaskDataset(req: AuthRequest, res: Response) {
   if (!ObjectId.isValid(taskId) || !["d_val", "d_all"].includes(kind)) return res.status(400).json({ success: false, message: "Invalid dataset request" });
   const task = await getCollection<Task>(TASKS_COLLECTION).findOne({ _id: new ObjectId(taskId) as any, userID });
   if (!task) return res.status(404).json({ success: false, message: "Task not found" });
-  const filename = kind === "d_val" ? task.valFile : task.file;
+  const filename = kind === "d_val" ? task.valFile : (task.restFile ?? task.file);
   if (!filename || path.basename(filename) !== filename) return res.status(404).json({ success: false, message: "Dataset not found" });
   const file = kind === "d_val" ? getValDatasetPath(filename) : getUploadsPath(filename);
   return res.download(file, `${kind}-${taskId}.csv`);
@@ -950,6 +950,7 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
 
     const dValFile = files?.d_val?.[0];
     const dAllFile = files?.d_all?.[0];
+    const fullFile = files?.d_all_full?.[0];
     const taskJsonFile = files?.task_json?.[0];
     const labelsJsonFile = files?.labels_json?.[0];
     const taskNameField = req.body.task_name as string | undefined;
@@ -1102,19 +1103,17 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
         message: `The unlabeled CSV has no "${textColumn}" text column. Enter its exact header under Text column name.`,
       });
     }
-    let allIdColumn: string;
-    let valIdColumn = "";
-    try {
-      allIdColumn = findIdColumn(restColumns);
-      if (dValFile) valIdColumn = findIdColumn(valColumns);
-    } catch (error) {
-      return res.status(400).json({ success: false, message: error instanceof Error ? error.message : "Could not identify a record ID column." });
+    const noteColumn = textColumn || "text";
+    if (fullFile && !getCsvColumns(fullFile.buffer).includes(noteColumn)) {
+      return res.status(400).json({ success: false, message: `The full dataset has no "${noteColumn}" text column.` });
     }
 
     let separation: ReturnType<typeof separateDatasets> | undefined;
+    let fullSeparation: ReturnType<typeof separateDatasets> | undefined;
     if (dValFile) {
       try {
-        separation = separateDatasets(dAllBuffer.toString("utf8"), dValFile.buffer.toString("utf8"), allIdColumn, valIdColumn);
+        separation = separateDatasets(dAllBuffer.toString("utf8"), dValFile.buffer.toString("utf8"), noteColumn, noteColumn, [], true);
+        if (fullFile) fullSeparation = separateDatasets(fullFile.buffer.toString("utf8"), dValFile.buffer.toString("utf8"), noteColumn, noteColumn, [], true);
       } catch (error) {
         return res.status(400).json({ success: false, message: error instanceof Error ? error.message : "Could not separate the datasets." });
       }
@@ -1130,10 +1129,16 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
     const uploadFilename = separation ? generateUploadFilename(dAllFile.originalname) : originalFilename;
     const valFilename = dValFile ? generateUploadFilename(dValFile.originalname) : undefined;
     const sharedUploadsPath = getUploadsPath(uploadFilename);
+    const originalInferenceFile = fullFile ? generateUploadFilename(fullFile.originalname) : undefined;
+    const inferenceFilename = fullFile ? (fullSeparation ? generateUploadFilename(fullFile.originalname) : originalInferenceFile!) : uploadFilename;
 
     console.log(`[uploadTaskBundle] Writing dall file to ${sharedUploadsPath}`);
     if (separation) await fs.writeFile(getUploadsPath(originalFilename), dAllBuffer);
     await fs.writeFile(sharedUploadsPath, separation ? separation.csv : dAllBuffer, "utf-8");
+    if (fullFile && originalInferenceFile) {
+      await fs.writeFile(getUploadsPath(originalInferenceFile), fullFile.buffer);
+      if (fullSeparation) await fs.writeFile(getUploadsPath(inferenceFilename), fullSeparation.csv, "utf-8");
+    }
     if (dValFile && valFilename) await fs.writeFile(getValDatasetPath(valFilename), dValFile.buffer);
 
     // DB: Create Task
@@ -1147,12 +1152,13 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       taskJsonRaw,
       labelsJsonRaw,
       file: uploadFilename,
-      restFile: uploadFilename,
+      restFile: inferenceFilename,
       valFile: valFilename,
       valFileName: dValFile?.originalname,
       inputFileName: dAllFile.originalname,
-      recordIdColumn: allIdColumn,
-      ...(separation ? { originalFile: originalFilename, datasetSeparation: { removed: separation.removed, missingAll: separation.missingAll, missingVal: separation.missingVal, allIdColumn, valIdColumn } } : {}),
+      overlapTextColumn: noteColumn,
+      ...(originalInferenceFile ? { originalInferenceFile } : {}),
+      ...(separation ? { originalFile: originalFilename, datasetSeparation: { removed: separation.removed, missingAll: separation.missingAll, missingVal: separation.missingVal, ...(fullSeparation ? { fullRemoved: fullSeparation.removed, fullMissing: fullSeparation.missingAll } : {}), matchBy: "text" as const } } : {}),
       columns: textColumn ? [textColumn] : ["text"],
       userID: userID,
       labelColumn: labelColumn,
@@ -1182,7 +1188,7 @@ export async function uploadTaskBundle(req: AuthRequest, res: Response) {
       message: "Task created successfully. Sampling has been queued.",
       taskId,
       fileName: uploadFilename,
-      restFileName: uploadFilename,
+      restFileName: inferenceFilename,
       valFileName: valFilename,
       valSummary: {
         rows: valRows.length,
@@ -1405,6 +1411,7 @@ export async function deleteTask(req: AuthRequest, res: Response) {
     const candidateFilenames = new Set<string>();
     if (task.file) candidateFilenames.add(task.file);
     if (task.originalFile) candidateFilenames.add(task.originalFile);
+    if (task.originalInferenceFile) candidateFilenames.add(task.originalInferenceFile);
     if (task.restFile) candidateFilenames.add(task.restFile);
     if (task.valFile) candidateFilenames.add(task.valFile);
 

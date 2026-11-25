@@ -75,8 +75,10 @@ export interface Task {
   outputFile?: string; // server path of the auto-labeled output CSV
   inputFileName?: string; // original CSV filename from the user's disk
   originalFile?: string;
+  originalInferenceFile?: string;
   recordIdColumn?: string;
-  datasetSeparation?: { removed: number; missingAll: number; missingVal: number; allIdColumn: string; valIdColumn: string };
+  overlapTextColumn?: string;
+  datasetSeparation?: { removed: number; missingAll: number; missingVal: number; fullRemoved?: number; fullMissing?: number; allIdColumn?: string; valIdColumn?: string; matchBy?: "text" };
   valFileName?: string; // original evaluation CSV filename
   restFile?: string;
   valFile?: string;

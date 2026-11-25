@@ -218,16 +218,26 @@ export async function finishEvaluation(task: Task, jobId: string) {
   await fs.rename(temporary, destination);
   let guideTask = task;
   let guideExcludedIds = records.map((r) => r.recordId);
-  if (task.recordIdColumn) {
+  const matchColumn = task.overlapTextColumn ?? task.recordIdColumn;
+  if (matchColumn) {
     const originalFile = task.originalFile ?? task.file;
     const originalCsv = await fs.readFile(getUploadsPath(originalFile), "utf8");
     const excludedRows = records.map((record) => /^r\d+$/.test(record.recordId) ? Number(record.recordId.slice(1)) : -1).filter((index) => index >= 0);
-    const separated = separateDatasets(originalCsv, Papa.unparse(valRows), task.recordIdColumn, task.recordIdColumn, excludedRows);
+    const separated = separateDatasets(originalCsv, Papa.unparse(valRows), matchColumn, matchColumn, excludedRows, Boolean(task.overlapTextColumn));
     const filteredFile = task.originalFile ? task.file : generateUploadFilename(task.file);
     await fs.writeFile(getUploadsPath(filteredFile), separated.csv, "utf8");
-    const datasetSeparation = { removed: separated.removed, missingAll: separated.missingAll, missingVal: separated.missingVal, allIdColumn: task.recordIdColumn, valIdColumn: task.recordIdColumn };
-    await tasks().updateOne({ ...taskFilter(task._id!, task.userID), "evaluationBuild.jobId": jobId }, { $set: { originalFile, file: filteredFile, restFile: filteredFile, datasetSeparation } });
-    guideTask = { ...task, originalFile, file: filteredFile, restFile: filteredFile, datasetSeparation };
+    let inferenceFile = filteredFile;
+    let fullSeparation: ReturnType<typeof separateDatasets> | undefined;
+    if (task.originalInferenceFile) {
+      const fullCsv = await fs.readFile(getUploadsPath(task.originalInferenceFile), "utf8");
+      fullSeparation = separateDatasets(fullCsv, Papa.unparse(valRows), matchColumn, matchColumn, [], Boolean(task.overlapTextColumn));
+      inferenceFile = task.restFile && task.restFile !== task.originalInferenceFile ? task.restFile : generateUploadFilename(task.originalInferenceFile);
+      await fs.writeFile(getUploadsPath(inferenceFile), fullSeparation.csv, "utf8");
+    }
+    const datasetSeparation = { removed: separated.removed, missingAll: separated.missingAll, missingVal: separated.missingVal, ...(fullSeparation ? { fullRemoved: fullSeparation.removed, fullMissing: fullSeparation.missingAll } : {}), ...(task.overlapTextColumn ? { matchBy: "text" as const } : { allIdColumn: matchColumn, valIdColumn: matchColumn }) };
+    const saved = await tasks().updateOne({ ...taskFilter(task._id!, task.userID), "evaluationBuild.jobId": jobId }, { $set: { originalFile, file: filteredFile, restFile: inferenceFile, datasetSeparation } });
+    if (!saved.matchedCount) return;
+    guideTask = { ...task, originalFile, file: filteredFile, restFile: inferenceFile, datasetSeparation };
     guideExcludedIds = [];
   }
   const guideCount = await generateGuideBatch(

@@ -59,6 +59,8 @@ describe("ModelPerformance", () => {
     const html = render(<ModelPerformance task={fullTask()} annotations={[]} />);
 
     expect(html).toContain("Final held-out F1");
+    expect(html).toContain("Macro F1");
+    expect(html).toContain("Micro F1");
     expect(html).toContain("F1 Score");
     expect(html).toContain("Fully correct samples");
     expect(html).toContain("Download predictions");

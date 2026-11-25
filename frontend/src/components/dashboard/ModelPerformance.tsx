@@ -66,19 +66,6 @@ export default function ModelPerformance({
 
   return (
     <div className="grid gap-4">
-      {task.codebookVersions && Object.keys(task.codebookVersions).length > 0 && (
-        <div>
-          <button type="button" className="rounded-md border border-[#319b58] bg-white px-4 py-2 text-xs font-medium text-[#247a43] hover:bg-emerald-50" onClick={() => {
-            const versions = Object.values(task.codebookVersions ?? {}).sort((a, b) => a.batch - b.batch);
-            const url = URL.createObjectURL(new Blob([JSON.stringify({ taskId: task._id, versions }, null, 2)], { type: "application/json" }));
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `codebook-versions-${task._id}.json`;
-            link.click();
-            URL.revokeObjectURL(url);
-          }}>Download batch codebooks</button>
-        </div>
-      )}
       {!task.evalResults && <p className="text-xs leading-5 text-[#667085]" role="status">
         Run final evaluation from the task summary to unlock held-out F1, precision, recall, prediction errors, and label performance. This runs model inference on D_val only.
       </p>}
@@ -438,8 +425,8 @@ function FinalEvaluationCard({
       <div className="flex items-center gap-1.5">
         <CardTitle>Final Evaluation</CardTitle>
         <InfoTooltip label="About final evaluation metrics">
-          F1, precision, and recall are macro averages, so every configured
-          label contributes equally. Fully correct means the complete predicted
+          Macro F1 weights each label equally; micro F1 combines decisions across labels.
+          Precision and recall are macro averages. Fully correct means the complete predicted
           label set matched the expected set.
         </InfoTooltip>
       </div>
@@ -447,7 +434,10 @@ function FinalEvaluationCard({
       {evalResults ? (
         <div className="flex flex-1 flex-col gap-4 pt-4">
           <dl className="flex flex-1 flex-col justify-evenly gap-4 text-center">
-            <EvaluationMetric label="F1 Score" value={evalResults.macroF1} primary tone="green" />
+            <div className="grid grid-cols-2 gap-4">
+              <EvaluationMetric label="Macro F1" value={evalResults.macroF1} primary tone="green" />
+              <EvaluationMetric label="Micro F1" value={evalResults.microF1} primary tone="green" />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <EvaluationMetric label="Precision" value={evalResults.macroPrecision} />
               <EvaluationMetric label="Recall" value={evalResults.macroRecall} />
