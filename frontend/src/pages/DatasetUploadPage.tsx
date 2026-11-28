@@ -169,7 +169,6 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
 
   const [dValFile, setDValFile] = useState<File | null>(null);
   const [dAllFile, setDAllFile] = useState<File | null>(null);
-  const [fullDatasetFile, setFullDatasetFile] = useState<File | null>(null);
   const [taskJsonFile, setTaskJsonFile] = useState<File | null>(null);
   const [taskDetailsMode, setTaskDetailsMode] = useState<"file" | "manual">("file");
   const [manualTaskName, setManualTaskName] = useState("");
@@ -255,7 +254,6 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
   const handleReset = useCallback(() => {
     setDValFile(null);
     setDAllFile(null);
-    setFullDatasetFile(null);
     setTaskJsonFile(null);
     setTaskDetailsMode("file");
     setManualTaskName("");
@@ -313,7 +311,6 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
         onProgress: setUploadProgress,
         dValFile: dValFile ?? undefined,
         dAllFile: dAllFile!,
-        fullDatasetFile: fullDatasetFile ?? undefined,
         taskJsonFile: taskDetailsMode === "file" ? taskJsonFile ?? undefined : undefined,
         taskName: taskDetailsMode === "manual" ? manualTaskName.trim() : undefined,
         taskDescription:
@@ -359,7 +356,6 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
     config,
     dashboardOnly,
     dAllFile,
-    fullDatasetFile,
     dValFile,
     hasTaskDetails,
     isDemo,
@@ -613,16 +609,6 @@ export default function DatasetUploadPage({ dashboardOnly = false }: { dashboard
                         onFileChange={setDAllFile}
                       />
                     </GuidedTourStep>}
-                    {!dashboardOnly && <RequiredFileCard
-                      inputId="full-dataset"
-                      accept=".csv,text/csv"
-                      icon={<IconFileTypeCsv size={18}/>}
-                      label="Full dataset for later annotation (optional)"
-                      selectLabel="Select CSV"
-                      hint="Upload the unfiltered dataset for later annotation. D_val matches will be excluded by case-note text. If omitted, the review dataset is used."
-                      file={fullDatasetFile}
-                      onFileChange={setFullDatasetFile}
-                    />}
                     <Divider my={4} color={dividerColor}/>
                     <RequiredFileCard
                       inputId="validation-dataset"

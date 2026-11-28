@@ -11,6 +11,7 @@ import {
   exportCodebookSnapshot,
   uploadTaskBundle,
   deleteTask,
+  renameTask,
   createAutoLabelTask,
   uploadAnnotationOutput,
   downloadAnnotationOutput,
@@ -97,6 +98,7 @@ router.get("/getTasks", getUserTasks);
 
 // Get a single task's details
 router.get("/getTask/:taskId", getTaskByID);
+router.patch("/:taskId/name", renameTask);
 router.get("/:taskId/dataset/:kind", downloadTaskDataset);
 
 // Full-dataset analytics; evaluation samples are never the chart source.

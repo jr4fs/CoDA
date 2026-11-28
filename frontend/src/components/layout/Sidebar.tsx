@@ -10,6 +10,8 @@ import {
   Tooltip,
   useMantineColorScheme,
   Box,
+  Modal,
+  TextInput,
 } from "@mantine/core";
 import {
   IconLayoutSidebar,
@@ -19,6 +21,7 @@ import {
   // IconPencil, // Annotate Dataset feature hidden for now
   IconDots,
   IconTrash,
+  IconPencil,
   IconMoon,
   IconSun,
   IconChevronDown,
@@ -37,6 +40,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { useLocation, useNavigate } from "react-router";
 import { getUserTasks } from "../../services/tasks.service";
 import { deleteTaskById } from "../../services/tasks.service";
+import { renameTask } from "../../services/tasks.service";
 import { IRootState } from "../../store/store";
 import { Task } from "@common/types/tasks";
 import { clearUser } from "../../store/userSlice";
@@ -71,6 +75,9 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [taskPendingDelete, setTaskPendingDelete] = useState<Task | null>(null);
+  const [taskPendingRename, setTaskPendingRename] = useState<Task | null>(null);
+  const [newName, setNewName] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>();
@@ -301,6 +308,9 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
                 </button>
               </Menu.Target>
               <Menu.Dropdown>
+                <Menu.Item leftSection={<IconPencil size={14} stroke={1.8} />} onClick={() => { setNewName(task.name); setTaskPendingRename(task); }}>
+                  Rename
+                </Menu.Item>
                 <Menu.Item
                   color="red"
                   leftSection={<IconTrash size={14} stroke={1.8} />}
@@ -706,6 +716,23 @@ export const SideBar = ({ collapsed, toggleCollapsed }: SideBarProps) => {
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>
+        <Modal opened={!!taskPendingRename} onClose={() => { if (!renaming) setTaskPendingRename(null); }} title="Rename task">
+          <form onSubmit={async (event) => {
+            event.preventDefault();
+            if (!taskPendingRename?._id || !newName.trim()) return;
+            setRenaming(true);
+            try {
+              await renameTask(taskPendingRename._id, newName.trim());
+              setTaskPendingRename(null);
+              window.dispatchEvent(new Event("tasks:updated"));
+              toast.success("Task renamed");
+            } catch { toast.error("Could not rename task."); }
+            finally { setRenaming(false); }
+          }}>
+            <TextInput label="Task name" value={newName} onChange={(event) => setNewName(event.currentTarget.value)} maxLength={200} required autoFocus />
+            <Button type="submit" mt="md" loading={renaming} disabled={!newName.trim()}>Save</Button>
+          </form>
+        </Modal>
         <ConfirmActionModal
           opened={Boolean(taskPendingDelete)}
           title="Delete Task"

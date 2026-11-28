@@ -1364,6 +1364,21 @@ async function deleteFileIfPresent(filePath: string): Promise<boolean> {
   }
 }
 
+export async function renameTask(req: AuthRequest, res: Response) {
+  const userID = req.user?.userId;
+  if (!userID) return res.status(401).json({ message: "Unauthorized" });
+  const { taskId } = req.params;
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  if (!ObjectId.isValid(taskId) || !name || name.length > 200) return res.status(400).json({ message: "Enter a task name of 1 to 200 characters." });
+  try {
+    const result = await getCollection<Task>(TASKS_COLLECTION).updateOne({ _id: new ObjectId(taskId) as any, userID }, { $set: { name } });
+    if (!result.matchedCount) return res.status(404).json({ message: "Task not found." });
+    return res.json({ success: true, name });
+  } catch {
+    return res.status(500).json({ message: "Could not rename task." });
+  }
+}
+
 export async function deleteTask(req: AuthRequest, res: Response) {
   try {
     const userID = req.user?.userId;
